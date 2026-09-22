@@ -116,6 +116,56 @@
             text-shadow: 0 4px 20px black;
         }
 
+        #combo {
+            position: fixed;
+            top: 34%;
+            width: 100%;
+            text-align: center;
+            font-size: clamp(16px, 3vw, 26px);
+            font-weight: 800;
+            letter-spacing: 3px;
+            pointer-events: none;
+            text-shadow: 0 3px 14px black;
+            opacity: 0;
+        }
+
+        #combo.you {
+            color: #65e4cf;
+        }
+
+        #combo.foe {
+            color: #f27589;
+        }
+
+        #combo:not(:empty) {
+            animation: comboPop 1s ease-out forwards;
+        }
+
+        @keyframes comboPop {
+            0% {
+                opacity: 0;
+                transform: scale(0.6) translateY(6px);
+            }
+
+            15% {
+                opacity: 1;
+                transform: scale(1.15) translateY(0);
+            }
+
+            30% {
+                transform: scale(1);
+            }
+
+            75% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0;
+                transform: scale(1) translateY(-10px);
+            }
+        }
+
         #help {
             position: fixed;
             bottom: 15px;
@@ -259,6 +309,7 @@
         </div>
     </div>
     <div id="message"></div>
+    <div id="combo"></div>
     <button id="pause">Pause</button>
     <div id="help">A/D: move | W: jump | J: punch | K: kick | L: block | Esc: pause</div>
 
@@ -379,6 +430,25 @@
             moon.position.set(4, 8, -18);
             scene.add(moon);
 
+            const glowCanvas = document.createElement("canvas");
+            glowCanvas.width = glowCanvas.height = 512;
+            const glowCtx = glowCanvas.getContext("2d");
+            const glowGrad = glowCtx.createRadialGradient(256, 300, 20, 256, 300, 260);
+            glowGrad.addColorStop(0, "rgba(255,190,120,0.55)");
+            glowGrad.addColorStop(0.35, "rgba(150,120,200,0.28)");
+            glowGrad.addColorStop(1, "rgba(9,14,29,0)");
+            glowCtx.fillStyle = glowGrad;
+            glowCtx.fillRect(0, 0, 512, 512);
+            const glow = new THREE.Mesh(
+                new THREE.PlaneGeometry(30, 16),
+                new THREE.MeshBasicMaterial({
+                    map: new THREE.CanvasTexture(glowCanvas),
+                    transparent: true, depthWrite: false
+                })
+            );
+            glow.position.set(0, 3, -7.5);
+            scene.add(glow);
+
             for (const x of [-7, 7]) {
                 box(scene, 0.3, 1.7, 0.3, stone, x, 0.85, -2.5);
                 const flame = new THREE.Mesh(
@@ -395,8 +465,8 @@
             function fighter(color) {
                 const root = new THREE.Group();
                 scene.add(root);
-                const dark = material(0x111727, 0.25);
-                const trim = material(color, 0.35);
+                const dark = new THREE.MeshBasicMaterial({ color: 0x030405 });
+                const trim = new THREE.MeshBasicMaterial({ color });
                 const torso = box(root, 0.62, 0.83, 0.4, dark, 0, 1.46);
                 box(root, 0.66, 0.12, 0.44, trim, 0, 1.13);
 
@@ -434,7 +504,8 @@
                     x: 0, y: 0, vy: 0, facing: 1,
                     hp: 100, maxHP: 100, stamina: 100, power: 0,
                     attack: null, cooldown: 0, stun: 0,
-                    blocking: false, move: 0, think: 0, guard: 0
+                    blocking: false, move: 0, think: 0, guard: 0,
+                    comboCount: 0, comboTimer: 0
                 };
             }
 
@@ -548,7 +619,8 @@
                 Object.assign(f, {
                     x, y: 0, vy: 0, hp: f.maxHP, stamina: 100,
                     attack: null, cooldown: 0, stun: 0,
-                    blocking: false, move: 0, think: 0, guard: 0
+                    blocking: false, move: 0, think: 0, guard: 0,
+                    comboCount: 0, comboTimer: 0
                 });
                 f.facing = x < 0 ? 1 : -1;
             }
@@ -706,7 +778,8 @@
                     x: f.x, y: f.y, vy: f.vy, facing: f.facing,
                     hp: f.hp, maxHP: f.maxHP, stamina: f.stamina,
                     attack: f.attack ? { kind: f.attack.kind, time: f.attack.time, hit: f.attack.hit } : null,
-                    cooldown: f.cooldown, stun: f.stun, blocking: f.blocking, move: f.move
+                    cooldown: f.cooldown, stun: f.stun, blocking: f.blocking, move: f.move,
+                    comboCount: f.comboCount
                 };
             }
 
@@ -716,8 +789,16 @@
                     $("overlay").style.display = "none";
                     state = "onlineClient";
                 }
+                const prevPlayerCombo = player.comboCount;
+                const prevEnemyCombo = enemy.comboCount;
                 Object.assign(player, msg.player);
                 Object.assign(enemy, msg.enemy);
+                if (player.comboCount > prevPlayerCombo && player.comboCount >= 2) {
+                    showCombo(player, player.comboCount);
+                }
+                if (enemy.comboCount > prevEnemyCombo && enemy.comboCount >= 2) {
+                    showCombo(enemy, enemy.comboCount);
+                }
                 timer = msg.timer;
                 round = msg.round;
                 wins = msg.wins;
@@ -981,6 +1062,15 @@
                 }
             }
 
+            function showCombo(attacker, count) {
+                const combo = $("combo");
+                combo.textContent = `${count} HIT COMBO`;
+                combo.className = attacker === player ? "you" : "foe";
+                combo.style.animation = "none";
+                void combo.offsetWidth;
+                combo.style.animation = "";
+            }
+
             function hit(attacker, defender, spec) {
                 const dx = defender.x - attacker.x;
                 if (Math.abs(dx) > spec.reach ||
@@ -991,7 +1081,19 @@
                     defender.facing * (attacker.x - defender.x) > 0;
                 const blocked = guarding && defender.stamina >= 12;
 
-                const damage = spec.damage + attacker.power;
+                if (blocked) {
+                    attacker.comboCount = 0;
+                    attacker.comboTimer = 0;
+                } else {
+                    attacker.comboCount = attacker.comboTimer > 0 ? attacker.comboCount + 1 : 1;
+                    attacker.comboTimer = 1.1;
+                    defender.comboCount = 0;
+                    defender.comboTimer = 0;
+                    if (attacker.comboCount >= 2) showCombo(attacker, attacker.comboCount);
+                }
+
+                const comboBonus = blocked ? 0 : Math.min(attacker.comboCount - 1, 5) * 2;
+                const damage = spec.damage + attacker.power + comboBonus;
                 defender.hp = Math.max(0, defender.hp - damage * (blocked ? 0.15 : 1));
                 if (guarding) defender.stamina = Math.max(0, defender.stamina - 12);
 
@@ -1011,6 +1113,8 @@
                 f.stamina = Math.min(
                     100, f.stamina + dt * (f.attack ? 3 : f.blocking ? 7 : 19)
                 );
+                f.comboTimer = Math.max(0, f.comboTimer - dt);
+                if (f.comboTimer <= 0) f.comboCount = 0;
 
                 if (!f.attack && f.stun <= 0) {
                     f.facing = opponent.x >= f.x ? 1 : -1;
