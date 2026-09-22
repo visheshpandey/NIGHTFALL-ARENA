@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <title>Nightfall Arena</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            touch-action: none;
+            overscroll-behavior: none;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #080c17;
+            color: #eef3ff;
+            font-family: system-ui, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+
+        button {
+            border: 1px solid #536781;
+            border-radius: 8px;
+            background: #18253b;
+            color: white;
+            padding: 12px 18px;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #293b57;
+        }
+
+        button:disabled {
+            opacity: .45;
+            cursor: default;
+        }
+
+        #hud {
+            position: fixed;
+            inset: 18px 20px auto;
+            display: grid;
+            grid-template-columns: 1fr 90px 1fr;
+            gap: 20px;
+            pointer-events: none;
+        }
+
+        .name {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            margin-bottom: 7px;
+        }
+
+        .bar {
+            height: 17px;
+            background: #172132;
+            border: 1px solid #526075;
+            overflow: hidden;
+        }
+
+        .fill {
+            height: 100%;
+            width: 100%;
+            background: #65e4cf;
+        }
+
+        .enemy .fill {
+            background: #f27589;
+        }
+
+        .stamina {
+            margin-top: 5px;
+            height: 5px;
+            border: 0;
+        }
+
+        .stamina .fill {
+            background: #eac772;
+        }
+
+        #clock {
+            text-align: center;
+            font-size: 32px;
+            font-weight: 800;
+        }
+
+        #roundLabel {
+            font-size: 11px;
+            color: #abbcd4;
+        }
+
+        #message {
+            position: fixed;
+            top: 23%;
+            width: 100%;
+            text-align: center;
+            font-size: clamp(24px, 5vw, 52px);
+            font-weight: 900;
+            letter-spacing: 5px;
+            pointer-events: none;
+            text-shadow: 0 4px 20px black;
+        }
+
+        #help {
+            position: fixed;
+            bottom: 15px;
+            width: 100%;
+            text-align: center;
+            color: #b1bfd3;
+            font-size: 12px;
+            pointer-events: none;
+        }
+
+        #overlay {
+            position: fixed;
+            inset: 0;
+            background: #050912bd;
+            display: grid;
+            place-items: center;
+            padding: 20px;
+            backdrop-filter: blur(6px);
+        }
+
+        #panel {
+            width: min(520px, 100%);
+            max-height: 90vh;
+            overflow: auto;
+            padding: 30px;
+            background: #101b2eee;
+            border: 1px solid #41516d;
+            border-radius: 18px;
+            box-shadow: 0 25px 100px #0009;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            letter-spacing: 3px;
+        }
+
+        #description {
+            color: #b9c7da;
+            line-height: 1.6;
+        }
+
+        #stats {
+            color: #edcd82;
+            margin: 20px 0;
+        }
+
+        #actions {
+            display: grid;
+            gap: 10px;
+        }
+
+        #pause {
+            position: fixed;
+            right: 20px;
+            top: 100px;
+            font-size: 12px;
+            padding: 7px 12px;
+        }
+
+        #touch {
+            position: fixed;
+            bottom: max(45px, env(safe-area-inset-bottom));
+            left: max(15px, env(safe-area-inset-left));
+            right: max(15px, env(safe-area-inset-right));
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+        }
+
+        .pad {
+            display: flex;
+            gap: 7px;
+            align-items: end;
+        }
+
+        #touch button {
+            pointer-events: auto;
+            touch-action: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+            width: 56px;
+            height: 56px;
+            padding: 0;
+            background: #17273bba;
+            font-size: 11px;
+        }
+
+        #pause {
+            touch-action: none;
+        }
+
+        @media (pointer: fine) {
+            #touch {
+                display: none;
+            }
+        }
+
+        @media (max-width: 600px) {
+            #hud {
+                inset: 12px;
+                gap: 10px;
+                grid-template-columns: 1fr 50px 1fr;
+            }
+
+            .name {
+                font-size: 10px;
+            }
+
+            #help {
+                font-size: 10px;
+            }
+
+            #panel {
+                padding: 22px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="hud">
+        <div>
+            <div class="name"><span>YOU</span><span id="playerWins">0 WINS</span></div>
+            <div class="bar">
+                <div id="playerHP" class="fill"></div>
+            </div>
+            <div class="bar stamina">
+                <div id="playerSP" class="fill"></div>
+            </div>
+        </div>
+        <div id="clock">60<div id="roundLabel">ROUND 1</div>
+        </div>
+        <div class="enemy">
+            <div class="name"><span id="enemyName">OPPONENT</span><span id="enemyWins">0 WINS</span></div>
+            <div class="bar">
+                <div id="enemyHP" class="fill"></div>
+            </div>
+            <div class="bar stamina">
+                <div id="enemySP" class="fill"></div>
+            </div>
+        </div>
+    </div>
+    <div id="message"></div>
+    <button id="pause">Pause</button>
+    <div id="help">A/D: move | W: jump | J: punch | K: kick | L: block | Esc: pause</div>
+
+    <div id="touch">
+        <div class="pad">
+            <button data-key="a">LEFT</button>
+            <button data-key="d">RIGHT</button>
+            <button data-key="w">JUMP</button>
+        </div>
+        <div class="pad">
+            <button data-key="l">BLOCK</button>
+            <button data-key="j">PUNCH</button>
+            <button data-key="k">KICK</button>
+        </div>
+    </div>
+
+    <div id="overlay">
+        <div id="panel">
+            <h1 id="title">NIGHTFALL ARENA</h1>
+            <p id="description">Loading the arena...</p>
+            <div id="stats"></div>
+            <div id="actions"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        try {
+            const THREE = await import(
+                "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
+            );
+
+            const $ = id => document.getElementById(id);
+            const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+            const SAVE_KEY = "nightfall-arena-v1";
+            const names = ["ASH", "VIPER", "IRON MONK", "WRAITH", "THE REGENT"];
+
+            let save = { coins: 0, power: 0, vitality: 0, stage: 0 };
+            try {
+                const stored = JSON.parse(localStorage.getItem(SAVE_KEY));
+                if (stored && typeof stored === "object") {
+                    for (const key of Object.keys(save)) {
+                        if (Number.isFinite(stored[key])) {
+                            save[key] = Math.max(0, Math.floor(stored[key]));
+                        }
+                    }
+                    save.stage = Math.min(save.stage, 4);
+                    save.power = Math.min(save.power, 8);
+                    save.vitality = Math.min(save.vitality, 8);
+                }
+            } catch { }
+
+            function persist() {
+                try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); }
+                catch { }
+            }
+
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x090e1d);
+            scene.fog = new THREE.Fog(0x090e1d, 16, 42);
+
+            const camera = new THREE.PerspectiveCamera(
+                42, innerWidth / innerHeight, 0.1, 100
+            );
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+            renderer.setSize(innerWidth, innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
+            document.body.prepend(renderer.domElement);
+
+            scene.add(new THREE.HemisphereLight(0x97c5ff, 0x222030, 2));
+            const moonlight = new THREE.DirectionalLight(0xb0d7ff, 3);
+            moonlight.position.set(-4, 9, 5);
+            moonlight.castShadow = true;
+            moonlight.shadow.mapSize.set(1024, 1024);
+            Object.assign(moonlight.shadow.camera, {
+                left: -12, right: 12, top: 10, bottom: -10
+            });
+            scene.add(moonlight);
+
+            function material(color, metalness = 0) {
+                return new THREE.MeshStandardMaterial({
+                    color, roughness: 0.65, metalness
+                });
+            }
+
+            function box(parent, w, h, d, mat, x = 0, y = 0, z = 0) {
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+                mesh.position.set(x, y, z);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                parent.add(mesh);
+                return mesh;
+            }
+
+            const stone = material(0x253046);
+            box(scene, 20, 0.45, 7, stone, 0, -0.25, 0);
+            box(scene, 21, 0.3, 8, material(0x151d2f), 0, -0.6, 0);
+
+            const inlay = material(0x51647d, 0.5);
+            for (let x = -9; x <= 9; x += 1.5) {
+                box(scene, 0.025, 0.01, 7, inlay, x, -0.018, 0);
+            }
+
+            const pillarMat = material(0x1b263d);
+            for (const x of [-9, -5, 5, 9]) {
+                box(scene, 0.7, 6, 0.7, pillarMat, x, 2.8, -3.8);
+                box(scene, 1.1, 0.3, 1.1, stone, x, 5.8, -3.8);
+            }
+            box(scene, 20, 0.45, 0.9, pillarMat, 0, 6, -3.8);
+
+            const moon = new THREE.Mesh(
+                new THREE.SphereGeometry(1.6, 32, 24),
+                new THREE.MeshBasicMaterial({ color: 0xd3e6f5 })
+            );
+            moon.position.set(4, 8, -18);
+            scene.add(moon);
+
+            for (const x of [-7, 7]) {
+                box(scene, 0.3, 1.7, 0.3, stone, x, 0.85, -2.5);
+                const flame = new THREE.Mesh(
+                    new THREE.OctahedronGeometry(0.22),
+                    new THREE.MeshBasicMaterial({ color: 0xffb45a })
+                );
+                flame.position.set(x, 1.95, -2.5);
+                scene.add(flame);
+                const light = new THREE.PointLight(0xff964c, 13, 9);
+                light.position.copy(flame.position);
+                scene.add(light);
+            }
+
+            function fighter(color) {
+                const root = new THREE.Group();
+                scene.add(root);
+                const dark = material(0x111727, 0.25);
+                const trim = material(color, 0.35);
+                const torso = box(root, 0.62, 0.83, 0.4, dark, 0, 1.46);
+                box(root, 0.66, 0.12, 0.44, trim, 0, 1.13);
+
+                const head = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.24, 16, 12), dark
+                );
+                head.position.set(0, 2.12, 0);
+                head.castShadow = true;
+                root.add(head);
+                box(root, 0.41, 0.07, 0.08, trim, 0, 2.15, 0.215);
+
+                function limb(x, y, z, length, width) {
+                    const joint = new THREE.Group();
+                    joint.position.set(x, y, z);
+                    root.add(joint);
+                    box(joint, width, length, width, dark, 0, -length / 2, 0);
+                    box(joint, width + 0.045, 0.18, width + 0.045,
+                        trim, 0, -length + 0.12, 0);
+                    return joint;
+                }
+
+                const arm1 = limb(0.32, 1.8, 0.19, 0.77, 0.19);
+                const arm2 = limb(-0.32, 1.8, -0.12, 0.77, 0.19);
+                const leg1 = limb(0.19, 1.1, 0.12, 1.03, 0.23);
+                const leg2 = limb(-0.19, 1.1, -0.12, 1.03, 0.23);
+
+                return {
+                    root, torso, arm1, arm2, leg1, leg2,
+                    x: 0, y: 0, vy: 0, facing: 1,
+                    hp: 100, maxHP: 100, stamina: 100,
+                    attack: null, cooldown: 0, stun: 0,
+                    blocking: false, move: 0, think: 0, guard: 0
+                };
+            }
+
+            const player = fighter(0x67e5d0);
+            const enemy = fighter(0xed718b);
+
+            const attacks = {
+                punch: { duration: 0.34, impact: 0.14, reach: 1.42, damage: 10, cost: 11 },
+                kick: { duration: 0.58, impact: 0.27, reach: 1.95, damage: 18, cost: 22 }
+            };
+
+            let state = "menu";
+            let timer = 60;
+            let round = 1;
+            let wins = [0, 0];
+            let transition = 0;
+            let aiLevel = 0;
+            let elapsed = 0;
+            let shake = 0;
+            let lastTime = performance.now();
+            const keys = new Set();
+            const particles = [];
+
+            let audio;
+            function unlockAudio() {
+                try {
+                    audio ??= new (window.AudioContext || window.webkitAudioContext)();
+                    audio.resume().catch(() => { });
+                } catch { }
+            }
+
+            function sound(blocked = false) {
+                if (!audio) return;
+                const osc = audio.createOscillator();
+                const gain = audio.createGain();
+                const now = audio.currentTime;
+                osc.type = "triangle";
+                osc.frequency.setValueAtTime(blocked ? 260 : 110, now);
+                osc.frequency.exponentialRampToValueAtTime(35, now + 0.12);
+                gain.gain.setValueAtTime(0.13, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+                osc.connect(gain).connect(audio.destination);
+                osc.start(now);
+                osc.stop(now + 0.15);
+            }
+
+            function showPanel(title, description, actions) {
+                $("overlay").style.display = "grid";
+                $("title").textContent = title;
+                $("description").textContent = description;
+                $("stats").textContent =
+                    `${save.coins} coins | Power ${save.power}/8 | Vitality ${save.vitality}/8`;
+                $("actions").replaceChildren();
+                for (const { label, action, disabled = false } of actions) {
+                    const button = document.createElement("button");
+                    button.textContent = label;
+                    button.disabled = disabled;
+                    button.onclick = () => { unlockAudio(); action(); };
+                    $("actions").append(button);
+                }
+            }
+
+            function upgrade(type) {
+                const price = 50 + save[type] * 35;
+                if (save[type] >= 8 || save.coins < price) return;
+                save.coins -= price;
+                save[type]++;
+                persist();
+                menu();
+            }
+
+            function menu() {
+                state = "menu";
+                keys.clear();
+                $("message").textContent = "";
+                showPanel("NIGHTFALL ARENA",
+                    `Defeat ${names[save.stage]} in a best-of-three match. ` +
+                    "Time your attacks, manage stamina, and block incoming strikes.",
+                    [
+                        { label: `Fight ${save.stage + 1}/5: ${names[save.stage]}`, action: startMatch },
+                        {
+                            label: `Upgrade power (+2 damage): ${50 + save.power * 35} coins`,
+                            action: () => upgrade("power"),
+                            disabled: save.power >= 8 || save.coins < 50 + save.power * 35
+                        },
+                        {
+                            label: `Upgrade vitality (+12 health): ${50 + save.vitality * 35} coins`,
+                            action: () => upgrade("vitality"),
+                            disabled: save.vitality >= 8 || save.coins < 50 + save.vitality * 35
+                        }
+                    ]
+                );
+            }
+
+            function resetFighter(f, x) {
+                Object.assign(f, {
+                    x, y: 0, vy: 0, hp: f.maxHP, stamina: 100,
+                    attack: null, cooldown: 0, stun: 0,
+                    blocking: false, move: 0, think: 0, guard: 0
+                });
+                f.facing = x < 0 ? 1 : -1;
+            }
+
+            function startMatch() {
+                aiLevel = save.stage;
+                wins = [0, 0];
+                round = 1;
+                player.maxHP = 100 + save.vitality * 12;
+                enemy.maxHP = 100 + aiLevel * 15;
+                $("enemyName").textContent = names[aiLevel];
+                $("overlay").style.display = "none";
+                startRound();
+            }
+
+            function startRound() {
+                resetFighter(player, -2.5);
+                resetFighter(enemy, 2.5);
+                keys.clear();
+                timer = 60;
+                transition = 1.3;
+                state = "intro";
+                $("message").textContent = `ROUND ${round}`;
+            }
+
+            function endRound() {
+                const p = player.hp / player.maxHP;
+                const e = enemy.hp / enemy.maxHP;
+                if (Math.abs(p - e) < 0.0001) {
+                    $("message").textContent = "DRAW";
+                } else if (p > e) {
+                    wins[0]++;
+                    $("message").textContent = "ROUND WON";
+                } else {
+                    wins[1]++;
+                    $("message").textContent = "ROUND LOST";
+                }
+                state = "roundEnd";
+                transition = 1.8;
+                keys.clear();
+            }
+
+            function endMatch() {
+                state = "result";
+                const won = wins[0] === 2;
+                const reward = won ? 90 + aiLevel * 35 : 25;
+                save.coins += reward;
+                const champion = won && aiLevel === 4;
+                if (won) save.stage = champion ? 0 : aiLevel + 1;
+                persist();
+                $("message").textContent = "";
+                showPanel(
+                    champion ? "ARENA CHAMPION" : won ? "VICTORY" : "DEFEAT",
+                    `You earned ${reward} coins. ` +
+                    (champion ? "All five opponents defeated. A new campaign awaits."
+                        : won ? "The next opponent is ready."
+                            : "Upgrade your fighter or challenge this opponent again."),
+                    [{ label: "Continue to camp", action: menu }]
+                );
+            }
+
+            function beginAttack(f, kind) {
+                const spec = attacks[kind];
+                if (state !== "fight" || f.attack || f.cooldown > 0 ||
+                    f.stun > 0 || f.blocking || f.stamina < spec.cost) return;
+                f.stamina -= spec.cost;
+                f.attack = { kind, time: 0, hit: false };
+                f.cooldown = spec.duration + 0.12;
+            }
+
+            function jump(f) {
+                if (f.y === 0 && f.stun <= 0 && !f.attack &&
+                    !f.blocking && f.stamina >= 8) {
+                    f.vy = 6;
+                    f.stamina -= 8;
+                }
+            }
+
+            const sparkGeometry = new THREE.SphereGeometry(0.035, 5, 4);
+            const sparkMaterials = [
+                new THREE.MeshBasicMaterial({ color: 0xffcd77 }),
+                new THREE.MeshBasicMaterial({ color: 0xa3e8ff })
+            ];
+
+            function sparks(x, y, blocked) {
+                for (let i = 0; i < 12; i++) {
+                    const mesh = new THREE.Mesh(sparkGeometry, sparkMaterials[blocked ? 1 : 0]);
+                    mesh.position.set(x, y, 0.3);
+                    scene.add(mesh);
+                    particles.push({
+                        mesh, life: 0.35,
+                        vx: (Math.random() - 0.5) * 7,
+                        vy: Math.random() * 4,
+                        vz: (Math.random() - 0.5) * 4
+                    });
+                }
+            }
+
+            function hit(attacker, defender, spec) {
+                const dx = defender.x - attacker.x;
+                if (Math.abs(dx) > spec.reach ||
+                    dx * attacker.facing < 0 ||
+                    Math.abs(attacker.y - defender.y) > 0.9) return;
+
+                const guarding = defender.blocking &&
+                    defender.facing * (attacker.x - defender.x) > 0;
+                const blocked = guarding && defender.stamina >= 12;
+
+                const damage = spec.damage +
+                    (attacker === player ? save.power * 2 : aiLevel * 2);
+                defender.hp = Math.max(0, defender.hp - damage * (blocked ? 0.15 : 1));
+                if (guarding) defender.stamina = Math.max(0, defender.stamina - 12);
+
+                defender.stun = blocked ? 0.08 : 0.23;
+                if (!blocked) defender.attack = null;
+                defender.x = clamp(
+                    defender.x + attacker.facing * (blocked ? 0.12 : 0.36), -8, 8
+                );
+                shake = blocked ? 0.045 : 0.13;
+                sparks((attacker.x + defender.x) / 2, attacker.y + 1.5, blocked);
+                sound(blocked);
+            }
+
+            function updateFighter(f, opponent, dt) {
+                f.cooldown = Math.max(0, f.cooldown - dt);
+                f.stun = Math.max(0, f.stun - dt);
+                f.stamina = Math.min(
+                    100, f.stamina + dt * (f.attack ? 3 : f.blocking ? 7 : 19)
+                );
+
+                if (!f.attack && f.stun <= 0) {
+                    f.facing = opponent.x >= f.x ? 1 : -1;
+                    f.x = clamp(f.x + f.move * dt * (f.blocking ? 1.3 : 3.5), -8, 8);
+                }
+
+                if (f.y > 0 || f.vy > 0) {
+                    f.vy -= 17 * dt;
+                    f.y = Math.max(0, f.y + f.vy * dt);
+                    if (f.y === 0) f.vy = 0;
+                }
+
+                if (f.attack) {
+                    const attack = f.attack;
+                    const spec = attacks[attack.kind];
+                    attack.time += dt;
+                    if (!attack.hit && attack.time >= spec.impact) {
+                        attack.hit = true;
+                        hit(f, opponent, spec);
+                    }
+                    if (attack.time >= spec.duration) f.attack = null;
+                }
+            }
+
+            function updateAI(dt) {
+                const distance = Math.abs(player.x - enemy.x);
+                enemy.think -= dt;
+                enemy.guard = Math.max(0, enemy.guard - dt);
+                enemy.blocking = enemy.guard > 0 && !enemy.attack &&
+                    enemy.y === 0 && enemy.stamina > 12 && enemy.stun <= 0;
+                enemy.move = distance > 1.55 ? Math.sign(player.x - enemy.x)
+                    : distance < 0.95 ? -Math.sign(player.x - enemy.x) : 0;
+
+                if (enemy.think > 0 || enemy.stun > 0) return;
+                enemy.think = 0.19 + Math.random() * (0.4 - aiLevel * 0.045);
+
+                if (player.attack && distance < 2.1 &&
+                    Math.random() < 0.3 + aiLevel * 0.1) {
+                    enemy.guard = 0.3 + Math.random() * 0.25;
+                } else if (distance < 1.9) {
+                    beginAttack(enemy, distance > 1.35 || Math.random() < 0.4 ? "kick" : "punch");
+                } else if (distance < 3 && Math.random() < 0.08 + aiLevel * 0.025) {
+                    jump(enemy);
+                }
+            }
+
+            function separateFighters() {
+                if (Math.abs(player.y - enemy.y) > 1.2) return;
+                const dx = enemy.x - player.x;
+                if (Math.abs(dx) >= 0.85) return;
+                const sign = dx >= 0 ? 1 : -1;
+                const correction = (0.85 - Math.abs(dx)) / 2;
+                player.x = clamp(player.x - correction * sign, -8, 8);
+                enemy.x = clamp(enemy.x + correction * sign, -8, 8);
+            }
+
+            function animateFighter(f) {
+                f.root.position.set(f.x, f.y, 0);
+                f.root.rotation.y = f.facing === 1 ? 0 : Math.PI;
+
+                const walk = Math.sin(elapsed * 13) *
+                    (f.move && !f.attack && f.stun <= 0 ? 0.48 : 0.035);
+                f.arm1.rotation.z = -0.38 - walk;
+                f.arm2.rotation.z = 0.3 + walk;
+                f.leg1.rotation.z = walk;
+                f.leg2.rotation.z = -walk;
+                f.torso.rotation.z = f.stun > 0 ? -0.16 : 0;
+
+                if (f.blocking) {
+                    f.arm1.rotation.z = 2.65;
+                    f.arm2.rotation.z = 2.35;
+                }
+                if (f.y > 0) {
+                    f.leg1.rotation.z = -0.6;
+                    f.leg2.rotation.z = 0.6;
+                }
+                if (f.attack) {
+                    const spec = attacks[f.attack.kind];
+                    const t = f.attack.time;
+                    const extension = t < spec.impact
+                        ? t / spec.impact
+                        : Math.max(0, 1 - (t - spec.impact) / (spec.duration - spec.impact));
+                    if (f.attack.kind === "punch") {
+                        f.arm1.rotation.z = extension * 1.7;
+                        f.torso.rotation.z = -extension * 0.12;
+                    } else {
+                        f.leg1.rotation.z = extension * 1.72;
+                        f.arm1.rotation.z = -extension * 0.9;
+                    }
+                }
+                if (f.hp <= 0) {
+                    f.root.rotation.z = -f.facing * 1.35;
+                    f.root.position.y = 0.35;
+                } else {
+                    f.root.rotation.z = 0;
+                }
+            }
+
+            function updateHUD() {
+                $("playerHP").style.width = `${player.hp / player.maxHP * 100}%`;
+                $("enemyHP").style.width = `${enemy.hp / enemy.maxHP * 100}%`;
+                $("playerSP").style.width = `${player.stamina}%`;
+                $("enemySP").style.width = `${enemy.stamina}%`;
+                $("clock").firstChild.nodeValue = String(Math.ceil(timer));
+                $("roundLabel").textContent = `ROUND ${round}`;
+                $("playerWins").textContent = `${wins[0]} WINS`;
+                $("enemyWins").textContent = `${wins[1]} WINS`;
+            }
+
+            function pause() {
+                if (state !== "fight") return;
+                state = "paused";
+                keys.clear();
+                showPanel("PAUSED", "The arena can wait.", [
+                    { label: "Resume", action: resume },
+                    { label: "Return to camp", action: menu }
+                ]);
+            }
+
+            function resume() {
+                state = "fight";
+                $("overlay").style.display = "none";
+                lastTime = performance.now();
+            }
+
+            $("pause").onclick = () => state === "paused" ? resume() : pause();
+
+            const controls = new Set(["a", "d", "w", "j", "k", "l", "escape"]);
+            addEventListener("keydown", event => {
+                const key = event.key.toLowerCase();
+                if (!controls.has(key)) return;
+                event.preventDefault();
+                if (event.repeat) return;
+                unlockAudio();
+                if (key === "escape") {
+                    state === "paused" ? resume() : pause();
+                } else if (state === "fight") {
+                    keys.add(key);
+                }
+            });
+            addEventListener("keyup", event => keys.delete(event.key.toLowerCase()));
+            addEventListener("blur", () => { keys.clear(); pause(); });
+            document.addEventListener("visibilitychange", () => {
+                if (document.hidden) { keys.clear(); pause(); }
+            });
+
+            document.querySelectorAll("[data-key]").forEach(button => {
+                button.addEventListener("contextmenu", event => event.preventDefault());
+                button.addEventListener("pointerdown", event => {
+                    event.preventDefault();
+                    unlockAudio();
+                    button.setPointerCapture(event.pointerId);
+                    if (state === "fight") keys.add(button.dataset.key);
+                });
+                for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
+                    button.addEventListener(type, () => keys.delete(button.dataset.key));
+                }
+            });
+
+            addEventListener("resize", () => {
+                camera.aspect = innerWidth / innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(innerWidth, innerHeight);
+            });
+
+            function frame(now) {
+                requestAnimationFrame(frame);
+                const dt = Math.min((now - lastTime) / 1000, 0.033);
+                lastTime = now;
+
+                if (state !== "paused") elapsed += dt;
+
+                if (state === "intro" || state === "roundEnd") {
+                    transition -= dt;
+                    if (transition <= 0) {
+                        if (state === "intro") {
+                            state = "fight";
+                            $("message").textContent = "";
+                        } else if (wins[0] === 2 || wins[1] === 2) {
+                            endMatch();
+                        } else {
+                            round++;
+                            startRound();
+                        }
+                    }
+                } else if (state === "fight") {
+                    timer = Math.max(0, timer - dt);
+                    player.move = Number(keys.has("d")) - Number(keys.has("a"));
+                    player.blocking = keys.has("l") && !player.attack &&
+                        player.y === 0 && player.stun <= 0 && player.stamina > 0;
+
+                    if (keys.has("w")) { jump(player); keys.delete("w"); }
+                    if (keys.has("j")) beginAttack(player, "punch");
+                    else if (keys.has("k")) beginAttack(player, "kick");
+
+                    updateAI(dt);
+                    updateFighter(player, enemy, dt);
+                    if (enemy.hp > 0) updateFighter(enemy, player, dt);
+                    separateFighters();
+
+                    if (player.hp <= 0 || enemy.hp <= 0 || timer <= 0) endRound();
+                }
+
+                if (state !== "paused") {
+                    for (let i = particles.length - 1; i >= 0; i--) {
+                        const p = particles[i];
+                        p.life -= dt;
+                        p.vy -= dt * 12;
+                        p.mesh.position.x += p.vx * dt;
+                        p.mesh.position.y += p.vy * dt;
+                        p.mesh.position.z += p.vz * dt;
+                        p.mesh.scale.setScalar(Math.max(0, p.life / 0.35));
+                        if (p.life <= 0) {
+                            scene.remove(p.mesh);
+                            particles.splice(i, 1);
+                        }
+                    }
+                    shake *= Math.exp(-dt * 18);
+                }
+
+                animateFighter(player);
+                animateFighter(enemy);
+                updateHUD();
+
+                const center = (player.x + enemy.x) / 2;
+                const span = Math.max(7, Math.abs(player.x - enemy.x) + 5);
+                const distance = Math.max(11, span / (0.72 * camera.aspect));
+                camera.position.set(
+                    center * 0.6 + (Math.random() - 0.5) * shake,
+                    3.8 + (Math.random() - 0.5) * shake,
+                    distance
+                );
+                camera.lookAt(center * 0.6, 1.4, 0);
+                renderer.render(scene, camera);
+            }
+
+            resetFighter(player, -2.5);
+            resetFighter(enemy, 2.5);
+            menu();
+            requestAnimationFrame(frame);
+
+        } catch (error) {
+            console.error(error);
+            document.getElementById("title").textContent = "STARTUP ERROR";
+            document.getElementById("description").textContent =
+                "The game could not start. Check your internet connection and use a " +
+                "WebGL-capable browser with hardware acceleration enabled. Details: " +
+                error.message;
+        }
+    </script>
+</body>
+
+</html>
