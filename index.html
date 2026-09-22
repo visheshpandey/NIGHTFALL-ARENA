@@ -238,7 +238,7 @@
 <body>
     <div id="hud">
         <div>
-            <div class="name"><span>YOU</span><span id="playerWins">0 WINS</span></div>
+            <div class="name"><span id="playerName">YOU</span><span id="playerWins">0 WINS</span></div>
             <div class="bar">
                 <div id="playerHP" class="fill"></div>
             </div>
@@ -284,6 +284,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <script type="module">
         try {
             const THREE = await import(
@@ -425,7 +426,7 @@
                 return {
                     root, torso, arm1, arm2, leg1, leg2,
                     x: 0, y: 0, vy: 0, facing: 1,
-                    hp: 100, maxHP: 100, stamina: 100,
+                    hp: 100, maxHP: 100, stamina: 100, power: 0,
                     attack: null, cooldown: 0, stun: 0,
                     blocking: false, move: 0, think: 0, guard: 0
                 };
@@ -450,6 +451,16 @@
             let lastTime = performance.now();
             const keys = new Set();
             const particles = [];
+
+            const ROOM_PREFIX = "nfa-";
+            let netRole = null; // 'host' | 'client' | null
+            let peer = null;
+            let conn = null;
+            let remoteKeys = new Set();
+            let remoteStats = { power: 0, vitality: 0 };
+            let netAccum = 0;
+            let clientResultShown = false;
+            let onlineLobbyPending = false;
 
             let audio;
             function unlockAudio() {
@@ -500,14 +511,19 @@
             }
 
             function menu() {
+                if (peer) teardownNetwork();
                 state = "menu";
                 keys.clear();
                 $("message").textContent = "";
+                $("pause").textContent = "Pause";
+                $("playerName").textContent = "YOU";
+                $("enemyName").textContent = "OPPONENT";
                 showPanel("NIGHTFALL ARENA",
                     `Defeat ${names[save.stage]} in a best-of-three match. ` +
                     "Time your attacks, manage stamina, and block incoming strikes.",
                     [
                         { label: `Fight ${save.stage + 1}/5: ${names[save.stage]}`, action: startMatch },
+                        { label: "Play online with a friend", action: onlineMenu },
                         {
                             label: `Upgrade power (+2 damage): ${50 + save.power * 35} coins`,
                             action: () => upgrade("power"),
@@ -537,6 +553,8 @@
                 round = 1;
                 player.maxHP = 100 + save.vitality * 12;
                 enemy.maxHP = 100 + aiLevel * 15;
+                player.power = save.power * 2;
+                enemy.power = aiLevel * 2;
                 $("enemyName").textContent = names[aiLevel];
                 $("overlay").style.display = "none";
                 startRound();
@@ -588,6 +606,241 @@
                 );
             }
 
+            function sendMsg(obj) {
+                if (conn && conn.open) {
+                    try { conn.send(obj); } catch { }
+                }
+            }
+
+            function teardownNetwork() {
+                netRole = null;
+                remoteKeys = new Set();
+                remoteStats = { power: 0, vitality: 0 };
+                clientResultShown = false;
+                onlineLobbyPending = false;
+                try { conn && conn.close(); } catch { }
+                try { peer && peer.destroy(); } catch { }
+                conn = null;
+                peer = null;
+            }
+
+            function onlinePeerLeft() {
+                if (!netRole && !peer) return;
+                teardownNetwork();
+                $("pause").textContent = "Pause";
+                showPanel("OPPONENT LEFT",
+                    "Your friend disconnected from the match.",
+                    [{ label: "Back to camp", action: menu }]);
+            }
+
+            function onlineError(err) {
+                teardownNetwork();
+                showPanel("CONNECTION ERROR",
+                    "Couldn't connect. Check the code and your internet connection." +
+                    (err && err.message ? ` (${err.message})` : ""),
+                    [{ label: "Back", action: onlineMenu }]);
+            }
+
+            function wireConnection() {
+                conn.on("open", () => {
+                    sendMsg({ t: "hello", power: save.power, vitality: save.vitality });
+                });
+                conn.on("data", handleNetMessage);
+                conn.on("close", onlinePeerLeft);
+                conn.on("error", onlinePeerLeft);
+            }
+
+            function handleNetMessage(msg) {
+                if (!msg || typeof msg !== "object") return;
+                if (msg.t === "hello") {
+                    remoteStats = {
+                        power: clamp(Math.floor(msg.power) || 0, 0, 8),
+                        vitality: clamp(Math.floor(msg.vitality) || 0, 0, 8)
+                    };
+                    if (netRole === "host") startOnlineMatch();
+                } else if (msg.t === "input" && netRole === "host") {
+                    remoteKeys = new Set(msg.keys);
+                } else if (msg.t === "state" && netRole === "client") {
+                    applyState(msg);
+                } else if (msg.t === "leave") {
+                    onlinePeerLeft();
+                }
+            }
+
+            function snapshotFighter(f) {
+                return {
+                    x: f.x, y: f.y, vy: f.vy, facing: f.facing,
+                    hp: f.hp, maxHP: f.maxHP, stamina: f.stamina,
+                    attack: f.attack ? { kind: f.attack.kind, time: f.attack.time, hit: f.attack.hit } : null,
+                    cooldown: f.cooldown, stun: f.stun, blocking: f.blocking, move: f.move
+                };
+            }
+
+            function applyState(msg) {
+                if (onlineLobbyPending) {
+                    onlineLobbyPending = false;
+                    $("overlay").style.display = "none";
+                    state = "onlineClient";
+                }
+                Object.assign(player, msg.player);
+                Object.assign(enemy, msg.enemy);
+                timer = msg.timer;
+                round = msg.round;
+                wins = msg.wins;
+                $("message").textContent = msg.message;
+                if (msg.matchOver) {
+                    if (!clientResultShown) {
+                        clientResultShown = true;
+                        showOnlineResultPanel(wins[1] === 2);
+                    }
+                } else if (clientResultShown) {
+                    clientResultShown = false;
+                    $("overlay").style.display = "none";
+                }
+            }
+
+            function showOnlineResultPanel(youWon) {
+                $("overlay").style.display = "grid";
+                $("title").textContent = youWon ? "VICTORY" : "DEFEAT";
+                $("description").textContent = youWon
+                    ? "You won the match!" : "Your friend won this time.";
+                $("stats").textContent = `${wins[0]} - ${wins[1]}`;
+                $("actions").replaceChildren();
+                const actions = [];
+                if (netRole === "host") {
+                    actions.push({ label: "Rematch", action: startOnlineMatch });
+                } else {
+                    actions.push({ label: "Waiting for host…", action: () => { }, disabled: true });
+                }
+                actions.push({ label: "Leave", action: leaveOnline });
+                for (const { label, action, disabled = false } of actions) {
+                    const button = document.createElement("button");
+                    button.textContent = label;
+                    button.disabled = disabled;
+                    button.onclick = () => { unlockAudio(); action(); };
+                    $("actions").append(button);
+                }
+            }
+
+            function leaveOnline() {
+                sendMsg({ t: "leave" });
+                teardownNetwork();
+                $("pause").textContent = "Pause";
+                menu();
+            }
+
+            function renderLobby(title, description, code, status) {
+                $("overlay").style.display = "grid";
+                $("title").textContent = title;
+                $("description").textContent = description;
+                $("stats").innerHTML = code
+                    ? `<div style="font-size:34px;letter-spacing:7px;font-weight:800;color:#eac772;margin:10px 0;">${code}</div><div>${status}</div>`
+                    : `<div>${status}</div>`;
+                $("actions").replaceChildren();
+                const cancel = document.createElement("button");
+                cancel.textContent = "Cancel";
+                cancel.onclick = () => { unlockAudio(); teardownNetwork(); menu(); };
+                $("actions").append(cancel);
+            }
+
+            function hostGame() {
+                try {
+                    netRole = "host";
+                    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+                    const code = Array.from({ length: 5 },
+                        () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+                    renderLobby("HOSTING MATCH", "Share this code with your friend:",
+                        code, "Waiting for your friend to join…");
+                    peer = new Peer(ROOM_PREFIX + code);
+                    peer.on("connection", c => {
+                        if (conn) { c.close(); return; }
+                        conn = c;
+                        wireConnection();
+                        renderLobby("HOSTING MATCH", "Share this code with your friend:",
+                            code, "Friend connected! Starting…");
+                    });
+                    peer.on("error", onlineError);
+                } catch (err) { onlineError(err); }
+            }
+
+            function joinGame(rawCode) {
+                try {
+                    const code = rawCode.trim().toUpperCase();
+                    if (!code) return;
+                    netRole = "client";
+                    renderLobby("JOINING MATCH", "", "", "Connecting…");
+                    peer = new Peer();
+                    peer.on("open", () => {
+                        conn = peer.connect(ROOM_PREFIX + code, { reliable: true });
+                        wireConnection();
+                        conn.on("open", () => {
+                            renderLobby("JOINING MATCH", "", "", "Connected! Waiting for match to start…");
+                            onlineLobbyPending = true;
+                        });
+                    });
+                    peer.on("error", onlineError);
+                } catch (err) { onlineError(err); }
+            }
+
+            function onlineMenu() {
+                $("overlay").style.display = "grid";
+                $("title").textContent = "PLAY ONLINE";
+                $("description").textContent =
+                    "Fight a friend in real time. One of you hosts and shares a code, " +
+                    "the other joins with it.";
+                $("stats").textContent = "";
+                $("actions").replaceChildren();
+
+                const hostBtn = document.createElement("button");
+                hostBtn.textContent = "Host a match";
+                hostBtn.onclick = () => { unlockAudio(); hostGame(); };
+
+                const joinRow = document.createElement("div");
+                joinRow.style.cssText = "display:flex;gap:8px;";
+                const input = document.createElement("input");
+                input.placeholder = "Enter code";
+                input.maxLength = 5;
+                input.style.cssText = "flex:1;min-width:0;text-transform:uppercase;" +
+                    "background:#18253b;border:1px solid #536781;border-radius:8px;" +
+                    "color:#eef3ff;padding:12px;font:inherit;";
+                const joinBtn = document.createElement("button");
+                joinBtn.textContent = "Join";
+                joinBtn.onclick = () => { unlockAudio(); joinGame(input.value); };
+                input.addEventListener("keydown", e => {
+                    if (e.key === "Enter") { unlockAudio(); joinGame(input.value); }
+                });
+                joinRow.append(input, joinBtn);
+
+                const backBtn = document.createElement("button");
+                backBtn.textContent = "Back";
+                backBtn.onclick = () => { unlockAudio(); menu(); };
+
+                $("actions").append(hostBtn, joinRow, backBtn);
+            }
+
+            function startOnlineMatch() {
+                player.power = save.power * 2;
+                enemy.power = remoteStats.power * 2;
+                player.maxHP = 100 + save.vitality * 12;
+                enemy.maxHP = 100 + remoteStats.vitality * 12;
+                $("playerName").textContent = "YOU";
+                $("enemyName").textContent = "FRIEND";
+                $("pause").textContent = "Leave";
+                clientResultShown = false;
+                wins = [0, 0];
+                round = 1;
+                startRound();
+            }
+
+            function applyRemoteInput() {
+                enemy.move = Number(remoteKeys.has("d")) - Number(remoteKeys.has("a"));
+                enemy.blocking = remoteKeys.has("l") && !enemy.attack &&
+                    enemy.y === 0 && enemy.stun <= 0 && enemy.stamina > 0;
+                if (remoteKeys.has("w")) { jump(enemy); remoteKeys.delete("w"); }
+                if (remoteKeys.has("j")) beginAttack(enemy, "punch");
+                else if (remoteKeys.has("k")) beginAttack(enemy, "kick");
+            }
+
             function beginAttack(f, kind) {
                 const spec = attacks[kind];
                 if (state !== "fight" || f.attack || f.cooldown > 0 ||
@@ -635,8 +888,7 @@
                     defender.facing * (attacker.x - defender.x) > 0;
                 const blocked = guarding && defender.stamina >= 12;
 
-                const damage = spec.damage +
-                    (attacker === player ? save.power * 2 : aiLevel * 2);
+                const damage = spec.damage + attacker.power;
                 defender.hp = Math.max(0, defender.hp - damage * (blocked ? 0.15 : 1));
                 if (guarding) defender.stamina = Math.max(0, defender.stamina - 12);
 
@@ -781,7 +1033,14 @@
                 lastTime = performance.now();
             }
 
-            $("pause").onclick = () => state === "paused" ? resume() : pause();
+            $("pause").onclick = () => {
+                if (netRole) leaveOnline();
+                else state === "paused" ? resume() : pause();
+            };
+
+            function sendClientInput() {
+                if (netRole === "client") sendMsg({ t: "input", keys: [...keys] });
+            }
 
             const controls = new Set(["a", "d", "w", "j", "k", "l", "escape"]);
             addEventListener("keydown", event => {
@@ -791,15 +1050,28 @@
                 if (event.repeat) return;
                 unlockAudio();
                 if (key === "escape") {
-                    state === "paused" ? resume() : pause();
-                } else if (state === "fight") {
+                    if (netRole) leaveOnline();
+                    else state === "paused" ? resume() : pause();
+                } else if (state === "fight" || state === "onlineClient") {
                     keys.add(key);
+                    sendClientInput();
                 }
             });
-            addEventListener("keyup", event => keys.delete(event.key.toLowerCase()));
-            addEventListener("blur", () => { keys.clear(); pause(); });
+            addEventListener("keyup", event => {
+                keys.delete(event.key.toLowerCase());
+                sendClientInput();
+            });
+            addEventListener("blur", () => {
+                keys.clear();
+                if (netRole === "client") sendClientInput();
+                else if (!netRole) pause();
+            });
             document.addEventListener("visibilitychange", () => {
-                if (document.hidden) { keys.clear(); pause(); }
+                if (document.hidden) {
+                    keys.clear();
+                    if (netRole === "client") sendClientInput();
+                    else if (!netRole) pause();
+                }
             });
 
             document.querySelectorAll("[data-key]").forEach(button => {
@@ -808,10 +1080,16 @@
                     event.preventDefault();
                     unlockAudio();
                     button.setPointerCapture(event.pointerId);
-                    if (state === "fight") keys.add(button.dataset.key);
+                    if (state === "fight" || state === "onlineClient") {
+                        keys.add(button.dataset.key);
+                        sendClientInput();
+                    }
                 });
                 for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
-                    button.addEventListener(type, () => keys.delete(button.dataset.key));
+                    button.addEventListener(type, () => {
+                        keys.delete(button.dataset.key);
+                        sendClientInput();
+                    });
                 }
             });
 
@@ -828,35 +1106,59 @@
 
                 if (state !== "paused") elapsed += dt;
 
-                if (state === "intro" || state === "roundEnd") {
-                    transition -= dt;
-                    if (transition <= 0) {
-                        if (state === "intro") {
-                            state = "fight";
-                            $("message").textContent = "";
-                        } else if (wins[0] === 2 || wins[1] === 2) {
-                            endMatch();
-                        } else {
-                            round++;
-                            startRound();
+                if (!netRole || netRole === "host") {
+                    if (state === "intro" || state === "roundEnd") {
+                        transition -= dt;
+                        if (transition <= 0) {
+                            if (state === "intro") {
+                                state = "fight";
+                                $("message").textContent = "";
+                            } else if (wins[0] === 2 || wins[1] === 2) {
+                                if (netRole) {
+                                    state = "result";
+                                    $("message").textContent = "";
+                                    showOnlineResultPanel(wins[0] === 2);
+                                } else {
+                                    endMatch();
+                                }
+                            } else {
+                                round++;
+                                startRound();
+                            }
                         }
+                    } else if (state === "fight") {
+                        timer = Math.max(0, timer - dt);
+                        player.move = Number(keys.has("d")) - Number(keys.has("a"));
+                        player.blocking = keys.has("l") && !player.attack &&
+                            player.y === 0 && player.stun <= 0 && player.stamina > 0;
+
+                        if (keys.has("w")) { jump(player); keys.delete("w"); }
+                        if (keys.has("j")) beginAttack(player, "punch");
+                        else if (keys.has("k")) beginAttack(player, "kick");
+
+                        if (netRole === "host") applyRemoteInput();
+                        else updateAI(dt);
+                        updateFighter(player, enemy, dt);
+                        if (enemy.hp > 0) updateFighter(enemy, player, dt);
+                        separateFighters();
+
+                        if (player.hp <= 0 || enemy.hp <= 0 || timer <= 0) endRound();
                     }
-                } else if (state === "fight") {
-                    timer = Math.max(0, timer - dt);
-                    player.move = Number(keys.has("d")) - Number(keys.has("a"));
-                    player.blocking = keys.has("l") && !player.attack &&
-                        player.y === 0 && player.stun <= 0 && player.stamina > 0;
+                }
 
-                    if (keys.has("w")) { jump(player); keys.delete("w"); }
-                    if (keys.has("j")) beginAttack(player, "punch");
-                    else if (keys.has("k")) beginAttack(player, "kick");
-
-                    updateAI(dt);
-                    updateFighter(player, enemy, dt);
-                    if (enemy.hp > 0) updateFighter(enemy, player, dt);
-                    separateFighters();
-
-                    if (player.hp <= 0 || enemy.hp <= 0 || timer <= 0) endRound();
+                if (netRole === "host") {
+                    netAccum += dt;
+                    if (netAccum >= 1 / 30) {
+                        netAccum = 0;
+                        sendMsg({
+                            t: "state",
+                            player: snapshotFighter(player),
+                            enemy: snapshotFighter(enemy),
+                            timer, round, wins,
+                            message: $("message").textContent,
+                            matchOver: state === "result"
+                        });
+                    }
                 }
 
                 if (state !== "paused") {
