@@ -421,7 +421,56 @@
             const $ = id => document.getElementById(id);
             const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
             const SAVE_KEY = "nightfall-arena-v1";
-            const names = ["ASH", "VIPER", "IRON MONK", "WRAITH", "THE REGENT"];
+            // Each opponent's fighting style drives AI behavior in updateAI() — not just a
+            // difficulty number. HP/damage/reward still scale with aiLevel (the campaign's
+            // difficulty curve); this is personality on top of that curve.
+            const ROSTER = [
+                {
+                    name: "ASH",
+                    tagline: "A cautious rookie who plays it safe.",
+                    style: {
+                        reactionBase: 0.24, reactionVar: 0.34,
+                        engageDistance: 1.9, approachDistance: 1.55, retreatDistance: 0.9,
+                        blockChance: 0.22, kickBias: 0.35, jumpChance: 0.06
+                    }
+                },
+                {
+                    name: "VIPER",
+                    tagline: "An aggressive rushdown fighter who lives on kicks.",
+                    style: {
+                        reactionBase: 0.16, reactionVar: 0.26,
+                        engageDistance: 2.1, approachDistance: 1.75, retreatDistance: 0.7,
+                        blockChance: 0.18, kickBias: 0.6, jumpChance: 0.05
+                    }
+                },
+                {
+                    name: "IRON MONK",
+                    tagline: "A patient counter-fighter who punishes mistakes.",
+                    style: {
+                        reactionBase: 0.2, reactionVar: 0.3,
+                        engageDistance: 1.85, approachDistance: 1.5, retreatDistance: 1.05,
+                        blockChance: 0.55, kickBias: 0.25, jumpChance: 0.03
+                    }
+                },
+                {
+                    name: "WRAITH",
+                    tagline: "An evasive brawler who jumps in from odd angles.",
+                    style: {
+                        reactionBase: 0.15, reactionVar: 0.22,
+                        engageDistance: 2.0, approachDistance: 1.6, retreatDistance: 1.1,
+                        blockChance: 0.3, kickBias: 0.5, jumpChance: 0.16
+                    }
+                },
+                {
+                    name: "THE REGENT",
+                    tagline: "The arena champion — fast, disciplined, relentless.",
+                    style: {
+                        reactionBase: 0.11, reactionVar: 0.16,
+                        engageDistance: 2.2, approachDistance: 1.65, retreatDistance: 0.85,
+                        blockChance: 0.45, kickBias: 0.55, jumpChance: 0.09
+                    }
+                }
+            ];
 
             let save = { coins: 0, power: 0, vitality: 0, stage: 0, muted: 0 };
             try {
@@ -901,10 +950,10 @@
                 $("playerName").textContent = "YOU";
                 $("enemyName").textContent = "OPPONENT";
                 showPanel("NIGHTFALL ARENA",
-                    `Defeat ${names[save.stage]} in a best-of-three match. ` +
-                    "Time your attacks, manage stamina, and block incoming strikes.",
+                    `Defeat ${ROSTER[save.stage].name} in a best-of-three match. ` +
+                    `${ROSTER[save.stage].tagline}`,
                     [
-                        { label: `Fight ${save.stage + 1}/5: ${names[save.stage]}`, action: startMatch },
+                        { label: `Fight ${save.stage + 1}/5: ${ROSTER[save.stage].name}`, action: startMatch },
                         { label: "Play online with a friend", action: onlineMenu },
                         {
                             label: `Upgrade power (+2 damage): ${50 + save.power * 35} coins`,
@@ -938,7 +987,7 @@
                 enemy.maxHP = 100 + aiLevel * 15;
                 player.power = save.power * 2;
                 enemy.power = aiLevel * 2;
-                $("enemyName").textContent = names[aiLevel];
+                $("enemyName").textContent = ROSTER[aiLevel].name;
                 $("overlay").style.display = "none";
                 startRound();
             }
@@ -1453,23 +1502,23 @@
             }
 
             function updateAI(dt) {
+                const style = ROSTER[aiLevel].style;
                 const distance = Math.abs(player.x - enemy.x);
                 enemy.think -= dt;
                 enemy.guard = Math.max(0, enemy.guard - dt);
                 enemy.blocking = enemy.guard > 0 && !enemy.attack &&
                     enemy.y === 0 && enemy.stamina > 12 && enemy.stun <= 0;
-                enemy.move = distance > 1.55 ? Math.sign(player.x - enemy.x)
-                    : distance < 0.95 ? -Math.sign(player.x - enemy.x) : 0;
+                enemy.move = distance > style.approachDistance ? Math.sign(player.x - enemy.x)
+                    : distance < style.retreatDistance ? -Math.sign(player.x - enemy.x) : 0;
 
                 if (enemy.think > 0 || enemy.stun > 0) return;
-                enemy.think = 0.19 + Math.random() * (0.4 - aiLevel * 0.045);
+                enemy.think = style.reactionBase + Math.random() * style.reactionVar;
 
-                if (player.attack && distance < 2.1 &&
-                    Math.random() < 0.3 + aiLevel * 0.1) {
+                if (player.attack && distance < 2.1 && Math.random() < style.blockChance) {
                     enemy.guard = 0.3 + Math.random() * 0.25;
-                } else if (distance < 1.9) {
-                    beginAttack(enemy, distance > 1.35 || Math.random() < 0.4 ? "kick" : "punch");
-                } else if (distance < 3 && Math.random() < 0.08 + aiLevel * 0.025) {
+                } else if (distance < style.engageDistance) {
+                    beginAttack(enemy, distance > 1.35 || Math.random() < style.kickBias ? "kick" : "punch");
+                } else if (distance < 3 && Math.random() < style.jumpChance) {
                     jump(enemy);
                 }
             }
