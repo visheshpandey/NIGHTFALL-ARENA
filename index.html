@@ -729,13 +729,49 @@
                 menu();
             }
 
+            function copyText(text) {
+                if (navigator.clipboard?.writeText) {
+                    return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+                }
+                return fallbackCopy(text);
+            }
+
+            function fallbackCopy(text) {
+                const area = document.createElement("textarea");
+                area.value = text;
+                area.style.cssText = "position:fixed;top:-1000px;opacity:0;";
+                document.body.append(area);
+                area.select();
+                try { document.execCommand("copy"); } catch { }
+                area.remove();
+            }
+
             function renderLobby(title, description, code, status) {
                 $("overlay").style.display = "grid";
                 $("title").textContent = title;
                 $("description").textContent = description;
-                $("stats").innerHTML = code
-                    ? `<div style="font-size:34px;letter-spacing:7px;font-weight:800;color:#eac772;margin:10px 0;">${code}</div><div>${status}</div>`
-                    : `<div>${status}</div>`;
+                $("stats").replaceChildren();
+                if (code) {
+                    const row = document.createElement("div");
+                    row.style.cssText = "display:flex;align-items:center;gap:10px;margin:10px 0;";
+                    const codeText = document.createElement("div");
+                    codeText.textContent = code;
+                    codeText.style.cssText = "font-size:34px;letter-spacing:7px;font-weight:800;color:#eac772;";
+                    const copyBtn = document.createElement("button");
+                    copyBtn.textContent = "Copy";
+                    copyBtn.style.cssText = "padding:7px 12px;font-size:12px;";
+                    copyBtn.onclick = () => {
+                        unlockAudio();
+                        copyText(code);
+                        copyBtn.textContent = "Copied!";
+                        setTimeout(() => { copyBtn.textContent = "Copy"; }, 1400);
+                    };
+                    row.append(codeText, copyBtn);
+                    $("stats").append(row);
+                }
+                const statusLine = document.createElement("div");
+                statusLine.textContent = status;
+                $("stats").append(statusLine);
                 $("actions").replaceChildren();
                 const cancel = document.createElement("button");
                 cancel.textContent = "Cancel";
