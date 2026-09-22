@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <title>Nightfall Arena — Animation Spike</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            touch-action: none;
+            overscroll-behavior: none;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #080c17;
+            color: #eef3ff;
+            font-family: system-ui, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+
+        button {
+            border: 1px solid #536781;
+            border-radius: 8px;
+            background: #18253bcc;
+            color: white;
+            padding: 10px 14px;
+            font: inherit;
+            font-size: 13px;
+            cursor: pointer;
+            touch-action: none;
+        }
+
+        button:active {
+            background: #31486b;
+        }
+
+        button.on {
+            border-color: #65e4cf;
+            color: #65e4cf;
+        }
+
+        #hud {
+            position: fixed;
+            top: max(14px, env(safe-area-inset-top));
+            left: max(14px, env(safe-area-inset-left));
+            font-size: 13px;
+            line-height: 1.7;
+            pointer-events: none;
+            text-shadow: 0 2px 10px #000;
+        }
+
+        #fps {
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: 1px;
+        }
+
+        #fps small {
+            font-size: 12px;
+            font-weight: 500;
+            color: #9fb0c8;
+            letter-spacing: 0;
+        }
+
+        #controls {
+            position: fixed;
+            bottom: max(16px, env(safe-area-inset-bottom));
+            left: max(12px, env(safe-area-inset-left));
+            right: max(12px, env(safe-area-inset-right));
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+        }
+
+        #note {
+            position: fixed;
+            top: max(14px, env(safe-area-inset-top));
+            right: max(14px, env(safe-area-inset-right));
+            max-width: 210px;
+            text-align: right;
+            font-size: 11px;
+            line-height: 1.5;
+            color: #93a5be;
+            pointer-events: none;
+            text-shadow: 0 2px 10px #000;
+        }
+
+        #loading {
+            position: fixed;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            background: #080c17;
+            text-align: center;
+            padding: 24px;
+        }
+
+        #loading h1 {
+            font-size: 17px;
+            letter-spacing: 3px;
+            margin: 0 0 10px;
+        }
+
+        #bar {
+            width: min(280px, 70vw);
+            height: 4px;
+            background: #1b2740;
+            margin: 14px auto 0;
+            overflow: hidden;
+        }
+
+        #barFill {
+            height: 100%;
+            width: 0%;
+            background: #65e4cf;
+            transition: width .2s;
+        }
+
+        #loading p {
+            color: #93a5be;
+            font-size: 12px;
+            margin: 0;
+        }
+
+        #rotate {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 999;
+            background: #070b16;
+            color: #eef3ff;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            text-align: center;
+            padding: 24px;
+        }
+
+        #rotate .icon {
+            font-size: 48px;
+            margin-bottom: 14px;
+            animation: tilt 1.6s ease-in-out infinite;
+        }
+
+        @keyframes tilt {
+
+            0%,
+            100% {
+                transform: rotate(0deg);
+            }
+
+            50% {
+                transform: rotate(90deg);
+            }
+        }
+
+        #rotate h2 {
+            margin: 0 0 8px;
+            font-size: 16px;
+            letter-spacing: 2px;
+        }
+
+        #rotate p {
+            color: #93a5be;
+            font-size: 13px;
+            margin: 0 0 18px;
+            max-width: 260px;
+        }
+
+        @media (orientation: portrait) {
+            #rotate {
+                display: flex;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="rotate">
+        <div class="icon">&#128241;</div>
+        <h2>ROTATE YOUR PHONE</h2>
+        <p>This spike is built for landscape, same as the real game.</p>
+        <button id="lockLandscape">Enable landscape</button>
+    </div>
+
+    <div id="hud">
+        <div id="fps">— <small>FPS</small></div>
+        <div id="info"></div>
+    </div>
+
+    <div id="note">
+        Judge: does this read as a real fighter, and does it hold frame rate on your phone?
+    </div>
+
+    <div id="controls">
+        <button data-act="char">Character: Soldier</button>
+        <button data-act="clip">Next animation</button>
+        <button data-act="style" class="on">Silhouette: ON</button>
+        <button data-act="shadow" class="on">Shadows: ON</button>
+        <button data-act="spin">Rotate: OFF</button>
+    </div>
+
+    <div id="loading">
+        <div>
+            <h1>ANIMATION SPIKE</h1>
+            <p>Loading rigged character…</p>
+            <div id="bar">
+                <div id="barFill"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "./vendor/three.module.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        const $ = id => document.getElementById(id);
+
+        try {
+            const THREE = await import("./vendor/three.module.js");
+            const { GLTFLoader } = await import("./vendor/jsm/loaders/GLTFLoader.js");
+            const { clone: cloneSkinned } = await import("./vendor/jsm/utils/SkeletonUtils.js");
+
+            // ---- scene: values copied verbatim from index.html so this reads as OUR game ----
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x090e1d);
+            scene.fog = new THREE.Fog(0x090e1d, 16, 42);
+
+            const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 100);
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+            renderer.setSize(innerWidth, innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
+            document.body.prepend(renderer.domElement);
+
+            scene.add(new THREE.HemisphereLight(0x97c5ff, 0x222030, 2));
+            const moonlight = new THREE.DirectionalLight(0xb0d7ff, 3);
+            moonlight.position.set(-4, 9, 5);
+            moonlight.castShadow = true;
+            moonlight.shadow.mapSize.set(1024, 1024);
+            Object.assign(moonlight.shadow.camera, { left: -12, right: 12, top: 10, bottom: -10 });
+            scene.add(moonlight);
+
+            const material = (color, metalness = 0) =>
+                new THREE.MeshStandardMaterial({ color, roughness: 0.65, metalness });
+
+            function box(parent, w, h, d, mat, x = 0, y = 0, z = 0) {
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+                mesh.position.set(x, y, z);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                parent.add(mesh);
+                return mesh;
+            }
+
+            const stone = material(0x253046);
+            box(scene, 20, 0.45, 7, stone, 0, -0.25, 0);
+            box(scene, 21, 0.3, 8, material(0x151d2f), 0, -0.6, 0);
+
+            const inlay = material(0x51647d, 0.5);
+            for (let x = -9; x <= 9; x += 1.5) box(scene, 0.025, 0.01, 7, inlay, x, -0.018, 0);
+
+            const pillarMat = material(0x1b263d);
+            for (const x of [-9, -5, 5, 9]) {
+                box(scene, 0.7, 6, 0.7, pillarMat, x, 2.8, -3.8);
+                box(scene, 1.1, 0.3, 1.1, stone, x, 5.8, -3.8);
+            }
+            box(scene, 20, 0.45, 0.9, pillarMat, 0, 6, -3.8);
+
+            const moon = new THREE.Mesh(new THREE.SphereGeometry(1.6, 32, 24),
+                new THREE.MeshBasicMaterial({ color: 0xd3e6f5 }));
+            moon.position.set(4, 8, -18);
+            scene.add(moon);
+
+            // warm horizon glow (same canvas-gradient trick as the game)
+            const glowCanvas = document.createElement("canvas");
+            glowCanvas.width = glowCanvas.height = 512;
+            const gctx = glowCanvas.getContext("2d");
+            const grad = gctx.createRadialGradient(256, 300, 20, 256, 300, 260);
+            grad.addColorStop(0, "rgba(255,190,120,0.55)");
+            grad.addColorStop(0.35, "rgba(150,120,200,0.28)");
+            grad.addColorStop(1, "rgba(9,14,29,0)");
+            gctx.fillStyle = grad;
+            gctx.fillRect(0, 0, 512, 512);
+            const glow = new THREE.Mesh(new THREE.PlaneGeometry(30, 16),
+                new THREE.MeshBasicMaterial({
+                    map: new THREE.CanvasTexture(glowCanvas),
+                    transparent: true, depthWrite: false
+                }));
+            glow.position.set(0, 3, -7.5);
+            scene.add(glow);
+
+            for (const x of [-7, 7]) {
+                box(scene, 0.3, 1.7, 0.3, stone, x, 0.85, -2.5);
+                const flame = new THREE.Mesh(new THREE.OctahedronGeometry(0.22),
+                    new THREE.MeshBasicMaterial({ color: 0xffb45a }));
+                flame.position.set(x, 1.95, -2.5);
+                scene.add(flame);
+                const light = new THREE.PointLight(0xff964c, 13, 9);
+                light.position.copy(flame.position);
+                scene.add(light);
+            }
+
+            // ---- character loading ----
+            const MODELS = {
+                Soldier: { url: "models/Soldier.glb", height: 2.0 },
+                Xbot: { url: "models/Xbot.glb", height: 2.0 }
+            };
+            const TRIM = [0x67e5d0, 0xed718b];
+            const loader = new GLTFLoader();
+            const cache = {};
+
+            async function loadModel(name) {
+                if (cache[name]) return cache[name];
+                $("barFill").style.width = "10%";
+                const gltf = await loader.loadAsync(MODELS[name].url, e => {
+                    if (e.lengthComputable) {
+                        $("barFill").style.width = `${10 + (e.loaded / e.total) * 85}%`;
+                    }
+                });
+                cache[name] = gltf;
+                return gltf;
+            }
+
+            // Measure real height so we can scale to arena proportions instead of guessing.
+            function measureHeight(object) {
+                const bbox = new THREE.Box3().setFromObject(object);
+                return bbox.max.y - bbox.min.y;
+            }
+
+            let silhouette = true;
+            let shadows = true;
+            const fighters = [];
+
+            function applyStyle(f) {
+                for (const mesh of f.meshes) {
+                    mesh.material = silhouette
+                        ? f.flatMat
+                        : (mesh.userData.originalMaterial || f.flatMat);
+                    mesh.castShadow = shadows;
+                }
+                f.shell.visible = silhouette;
+            }
+
+            function buildFighter(gltf, index, name) {
+                const root = new THREE.Group();
+                const model = cloneSkinned(gltf.scene);
+                model.updateMatrixWorld(true);
+
+                // scale to the arena's ~2 unit fighter height
+                const raw = measureHeight(model);
+                const scale = MODELS[name].height / (raw || 1);
+                model.scale.setScalar(scale);
+                root.add(model);
+
+                const flatMat = new THREE.MeshBasicMaterial({ color: 0x030405 });
+                const meshes = [];
+                let skinned = null;
+                model.traverse(o => {
+                    if (o.isMesh || o.isSkinnedMesh) {
+                        o.userData.originalMaterial = o.material;
+                        o.castShadow = true;
+                        o.receiveShadow = false;
+                        o.frustumCulled = false;
+                        meshes.push(o);
+                        if (o.isSkinnedMesh && !skinned) skinned = o;
+                    }
+                });
+
+                // Colored accent bands on real bones (same visual language as the game's
+                // existing trim boxes) — attaching to bones by name is simple and guaranteed
+                // to render, unlike a custom outline shader. Stay parented to the bone so they
+                // follow the animation; tracked separately (not reparented) for visibility toggling.
+                const shellMeshes = [];
+                if (skinned) {
+                    const accentMat = new THREE.MeshBasicMaterial({ color: TRIM[index] });
+                    const bandOn = (boneName, w, h, d, y = 0) => {
+                        const bone = skinned.skeleton.getBoneByName(boneName);
+                        if (!bone) return;
+                        // Bones sit under the glTF's own internal scale (often baked ~0.01 by the
+                        // exporter), so a naive child mesh renders microscopic. Counter-scale by
+                        // the bone's inherited world scale so our size/offset are true world units.
+                        bone.updateWorldMatrix(true, false);
+                        const worldScale = new THREE.Vector3();
+                        bone.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
+                        const inv = 1 / (worldScale.x || 1);
+                        const band = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), accentMat);
+                        band.scale.setScalar(inv);
+                        band.position.set(0, y * inv, 0);
+                        band.frustumCulled = false;
+                        bone.add(band);
+                        shellMeshes.push(band);
+                    };
+                    bandOn("mixamorigHead", 0.24, 0.05, 0.24, 0.15);
+                    bandOn("mixamorigLeftForeArm", 0.12, 0.12, 0.12, -0.22);
+                    bandOn("mixamorigRightForeArm", 0.12, 0.12, 0.12, -0.22);
+                    bandOn("mixamorigLeftLeg", 0.15, 0.06, 0.15, -0.3);
+                    bandOn("mixamorigRightLeg", 0.15, 0.06, 0.15, -0.3);
+                }
+                const shell = { children: shellMeshes, get visible() { return shellMeshes[0]?.visible ?? true; }, set visible(v) { for (const m of shellMeshes) m.visible = v; } };
+
+                const mixer = new THREE.AnimationMixer(model);
+                const actions = {};
+                for (const clip of gltf.animations) {
+                    actions[clip.name] = mixer.clipAction(clip);
+                }
+
+                scene.add(root);
+                const f = { root, model, mixer, actions, meshes, shell, flatMat, current: null };
+                applyStyle(f);
+                return f;
+            }
+
+            let clipNames = [];
+            let clipIndex = 0;
+
+            function playClip(f, name, fade = 0.25) {
+                const next = f.actions[name];
+                if (!next || f.current === next) return;
+                next.reset().setEffectiveWeight(1).play();
+                if (f.current) next.crossFadeFrom(f.current, fade, false);
+                f.current = next;
+            }
+
+            let currentChar = "Soldier";
+
+            async function setCharacter(name) {
+                $("loading").style.display = "grid";
+                $("barFill").style.width = "0%";
+                const gltf = await loadModel(name);
+
+                for (const f of fighters) scene.remove(f.root);
+                fighters.length = 0;
+
+                for (let i = 0; i < 2; i++) {
+                    const f = buildFighter(gltf, i, name);
+                    f.root.position.set(i === 0 ? -1.6 : 1.6, 0, 0);
+                    f.root.rotation.y = i === 0 ? Math.PI / 2 : -Math.PI / 2;
+                    fighters.push(f);
+                }
+
+                clipNames = gltf.animations.map(c => c.name);
+                clipIndex = 0;
+                for (const f of fighters) {
+                    f.current = null;
+                    playClip(f, clipNames[0], 0);
+                }
+
+                const tris = renderer.info.render.triangles;
+                $("info").innerHTML =
+                    `${name} &middot; ${clipNames.length} clips<br>` +
+                    `clip: <b>${clipNames[0]}</b><br>` +
+                    `${(gltf.animations.length ? "skeletal mocap" : "static")}`;
+                currentChar = name;
+                document.querySelector('[data-act="char"]').textContent = `Character: ${name}`;
+                $("loading").style.display = "none";
+            }
+
+            await setCharacter("Soldier");
+
+            // ---- controls ----
+            let spinning = false;
+            document.querySelectorAll("[data-act]").forEach(btn => {
+                btn.addEventListener("click", async () => {
+                    const act = btn.dataset.act;
+                    if (act === "char") {
+                        await setCharacter(currentChar === "Soldier" ? "Xbot" : "Soldier");
+                    } else if (act === "clip") {
+                        if (!clipNames.length) return;
+                        clipIndex = (clipIndex + 1) % clipNames.length;
+                        const name = clipNames[clipIndex];
+                        for (const f of fighters) playClip(f, name);
+                        $("info").innerHTML =
+                            `${currentChar} &middot; ${clipNames.length} clips<br>` +
+                            `clip: <b>${name}</b><br>skeletal mocap`;
+                    } else if (act === "style") {
+                        silhouette = !silhouette;
+                        btn.classList.toggle("on", silhouette);
+                        btn.textContent = `Silhouette: ${silhouette ? "ON" : "OFF"}`;
+                        for (const f of fighters) applyStyle(f);
+                    } else if (act === "shadow") {
+                        shadows = !shadows;
+                        btn.classList.toggle("on", shadows);
+                        btn.textContent = `Shadows: ${shadows ? "ON" : "OFF"}`;
+                        renderer.shadowMap.enabled = shadows;
+                        for (const f of fighters) {
+                            applyStyle(f);
+                            f.meshes.forEach(m => { m.material.needsUpdate = true; });
+                        }
+                    } else if (act === "spin") {
+                        spinning = !spinning;
+                        btn.classList.toggle("on", spinning);
+                        btn.textContent = `Rotate: ${spinning ? "ON" : "OFF"}`;
+                    }
+                });
+            });
+
+            addEventListener("resize", () => {
+                camera.aspect = innerWidth / innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(innerWidth, innerHeight);
+            });
+
+            // ---- loop ----
+            let last = performance.now();
+            let frames = 0;
+            let fpsTime = 0;
+            let orbit = 0;
+
+            function frame(now) {
+                requestAnimationFrame(frame);
+                const dt = Math.min((now - last) / 1000, 0.033);
+                last = now;
+
+                for (const f of fighters) f.mixer.update(dt);
+
+                if (spinning) orbit += dt * 0.4;
+                const camDistance = 6.4;
+                camera.position.set(
+                    Math.sin(orbit) * camDistance,
+                    3.2,
+                    Math.cos(orbit) * camDistance
+                );
+                camera.lookAt(0, 1.15, 0);
+                renderer.render(scene, camera);
+
+                frames++;
+                fpsTime += dt;
+                if (fpsTime >= 0.5) {
+                    $("fps").innerHTML =
+                        `${Math.round(frames / fpsTime)} <small>FPS</small>`;
+                    frames = 0;
+                    fpsTime = 0;
+                }
+            }
+            requestAnimationFrame(frame);
+
+            async function goLandscape() {
+                try {
+                    if (document.documentElement.requestFullscreen) {
+                        await document.documentElement.requestFullscreen();
+                    }
+                    if (screen.orientation && screen.orientation.lock) {
+                        await screen.orientation.lock("landscape");
+                    }
+                } catch { }
+            }
+            $("lockLandscape").addEventListener("click", goLandscape);
+            // also try silently on first control tap, in case the browser allows it
+            // without an explicit "enable landscape" press
+            document.querySelector("#controls")?.addEventListener("pointerdown", goLandscape, { once: true });
+
+            window.__spikeReady = true;
+            window.__sceneRef = scene;
+            window.__shellCheck = () => fighters.map(f => ({
+                shellVisible: f.shell.visible,
+                shellChildCount: f.shell.children.length,
+                shellMat: f.shell.children[0] ? {
+                    color: f.shell.children[0].material.color.getHexString(),
+                    side: f.shell.children[0].material.side,
+                    visible: f.shell.children[0].visible,
+                    inScene: f.shell.children[0].parent !== null
+                } : "NO RIM MESH"
+            }));
+            window.__debug = () => fighters.map(f => ({
+                pos: f.root.position.toArray(),
+                scale: f.model.scale.toArray(),
+                meshCount: f.meshes.length,
+                bbox: new THREE.Box3().setFromObject(f.root).min.toArray()
+                    .concat(new THREE.Box3().setFromObject(f.root).max.toArray()),
+                visible: f.root.visible,
+                camPos: camera.position.toArray()
+            }));
+
+        } catch (error) {
+            console.error(error);
+            $("loading").innerHTML =
+                `<div><h1>SPIKE FAILED</h1><p>${error.message}</p></div>`;
+            window.__spikeError = error.message;
+        }
+    </script>
+</body>
+
+</html>

@@ -223,12 +223,18 @@
             gap: 10px;
         }
 
-        #pause {
+        #pause,
+        #sound {
             position: fixed;
             right: 20px;
             top: 100px;
             font-size: 12px;
             padding: 7px 12px;
+        }
+
+        #sound {
+            top: 142px;
+            z-index: 2;
         }
 
         #touch {
@@ -259,7 +265,8 @@
             font-size: 11px;
         }
 
-        #pause {
+        #pause,
+        #sound {
             touch-action: none;
         }
 
@@ -288,10 +295,67 @@
                 padding: 22px;
             }
         }
+
+        #rotate {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 999;
+            background: #070b16;
+            color: #eef3ff;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            text-align: center;
+            padding: 24px;
+        }
+
+        #rotate .icon {
+            font-size: 48px;
+            margin-bottom: 14px;
+            animation: tilt 1.6s ease-in-out infinite;
+        }
+
+        @keyframes tilt {
+
+            0%,
+            100% {
+                transform: rotate(0deg);
+            }
+
+            50% {
+                transform: rotate(90deg);
+            }
+        }
+
+        #rotate h2 {
+            margin: 0 0 8px;
+            font-size: 16px;
+            letter-spacing: 2px;
+        }
+
+        #rotate p {
+            color: #93a5be;
+            font-size: 13px;
+            margin: 0 0 18px;
+            max-width: 260px;
+        }
+
+        @media (orientation: portrait) {
+            #rotate {
+                display: flex;
+            }
+        }
     </style>
 </head>
 
 <body>
+    <div id="rotate">
+        <div class="icon">&#128241;</div>
+        <h2>ROTATE YOUR PHONE</h2>
+        <p>Nightfall Arena plays in landscape.</p>
+        <button id="lockLandscape">Enable landscape</button>
+    </div>
     <div id="hud">
         <div>
             <div class="name"><span id="playerName">YOU</span><span id="playerWins">0 WINS</span></div>
@@ -317,6 +381,7 @@
     <div id="message"></div>
     <div id="combo"></div>
     <button id="pause">Pause</button>
+    <button id="sound" aria-pressed="true">Sound: On</button>
     <div id="help">A/D: move | W: jump | J: punch | K: kick | L: block | Esc: pause</div>
 
     <div id="touch">
@@ -342,18 +407,23 @@
     </div>
 
     <script src="vendor/peerjs.min.js"></script>
+    <script type="importmap">
+        { "imports": { "three": "./vendor/three.module.js" } }
+    </script>
     <script type="module">
         try {
             const THREE = await import(
                 "./vendor/three.module.js"
             );
+            const { GLTFLoader } = await import("./vendor/jsm/loaders/GLTFLoader.js");
+            const { clone: cloneSkinned } = await import("./vendor/jsm/utils/SkeletonUtils.js");
 
             const $ = id => document.getElementById(id);
             const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
             const SAVE_KEY = "nightfall-arena-v1";
             const names = ["ASH", "VIPER", "IRON MONK", "WRAITH", "THE REGENT"];
 
-            let save = { coins: 0, power: 0, vitality: 0, stage: 0 };
+            let save = { coins: 0, power: 0, vitality: 0, stage: 0, muted: 0 };
             try {
                 const stored = JSON.parse(localStorage.getItem(SAVE_KEY));
                 if (stored && typeof stored === "object") {
@@ -365,6 +435,7 @@
                     save.stage = Math.min(save.stage, 4);
                     save.power = Math.min(save.power, 8);
                     save.vitality = Math.min(save.vitality, 8);
+                    save.muted = save.muted ? 1 : 0;
                 }
             } catch { }
 
@@ -468,45 +539,76 @@
                 scene.add(light);
             }
 
+            // Rigged mocap character setup. Punch/kick/block/hit/KO clips are placeholders
+            // (mapped to Idle/Walk/Run below) until real fight clips are captured from Mixamo —
+            // see PLAN.md Milestone 4. The state machine and network sync are fully wired now;
+            // swapping in real clips later only means editing CLIP_MAP.
+            const CLIP_MAP = {
+                idle: "Idle", walk: "Walk",
+                attack: "Run", jump: "Idle", block: "Idle", hit: "Idle", ko: "Idle"
+            };
+
+            function measureHeight(object) {
+                const box3 = new THREE.Box3().setFromObject(object);
+                return box3.max.y - box3.min.y;
+            }
+
+            const fighterGLTF = await new GLTFLoader().loadAsync("./models/Soldier.glb");
+
             function fighter(color) {
                 const root = new THREE.Group();
                 scene.add(root);
-                const dark = new THREE.MeshBasicMaterial({ color: 0x030405 });
-                const trim = new THREE.MeshBasicMaterial({ color });
-                const torso = box(root, 0.62, 0.83, 0.4, dark, 0, 1.46);
-                box(root, 0.66, 0.12, 0.44, trim, 0, 1.13);
 
-                const head = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.24, 16, 12), dark
-                );
-                head.position.set(0, 2.12, 0);
-                head.castShadow = true;
-                root.add(head);
-                box(root, 0.41, 0.07, 0.08, trim, 0, 2.15, 0.215);
+                const model = cloneSkinned(fighterGLTF.scene);
+                model.updateMatrixWorld(true);
+                const scale = 2.0 / (measureHeight(model) || 1);
+                model.scale.setScalar(scale);
+                root.add(model);
 
-                function limb(x, y, z, upperLen, lowerLen, width, capDepth = 0.18) {
-                    const upper = new THREE.Group();
-                    upper.position.set(x, y, z);
-                    root.add(upper);
-                    box(upper, width, upperLen, width, dark, 0, -upperLen / 2, 0);
+                const flatMat = new THREE.MeshBasicMaterial({ color: 0x030405 });
+                let skinned = null;
+                model.traverse(o => {
+                    if (o.isMesh || o.isSkinnedMesh) {
+                        o.material = flatMat;
+                        o.castShadow = true;
+                        o.receiveShadow = false;
+                        o.frustumCulled = false;
+                        if (o.isSkinnedMesh && !skinned) skinned = o;
+                    }
+                });
 
-                    const lower = new THREE.Group();
-                    lower.position.set(0, -upperLen, 0);
-                    upper.add(lower);
-                    box(lower, width * 0.86, lowerLen, width * 0.86, dark, 0, -lowerLen / 2, 0);
-                    box(lower, width + 0.045, capDepth, width + 0.045,
-                        trim, 0, -lowerLen + capDepth / 2 + 0.03, 0);
-
-                    return { upper, lower };
+                // Colored accent bands (headband/wrist/ankle) — same visual language as the
+                // game's original trim boxes. Bone-attached, so they follow the animation.
+                if (skinned) {
+                    const accentMat = new THREE.MeshBasicMaterial({ color });
+                    const bandOn = (boneName, w, h, d, y = 0) => {
+                        const bone = skinned.skeleton.getBoneByName(boneName);
+                        if (!bone) return;
+                        bone.updateWorldMatrix(true, false);
+                        const worldScale = new THREE.Vector3();
+                        bone.matrixWorld.decompose(new THREE.Vector3(), new THREE.Quaternion(), worldScale);
+                        const inv = 1 / (worldScale.x || 1);
+                        const band = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), accentMat);
+                        band.scale.setScalar(inv);
+                        band.position.set(0, y * inv, 0);
+                        band.frustumCulled = false;
+                        bone.add(band);
+                    };
+                    bandOn("mixamorigHead", 0.24, 0.05, 0.24, 0.15);
+                    bandOn("mixamorigLeftForeArm", 0.12, 0.12, 0.12, -0.22);
+                    bandOn("mixamorigRightForeArm", 0.12, 0.12, 0.12, -0.22);
+                    bandOn("mixamorigLeftLeg", 0.15, 0.06, 0.15, -0.3);
+                    bandOn("mixamorigRightLeg", 0.15, 0.06, 0.15, -0.3);
                 }
 
-                const arm1 = limb(0.32, 1.8, 0.19, 0.36, 0.42, 0.19);
-                const arm2 = limb(-0.32, 1.8, -0.12, 0.36, 0.42, 0.19);
-                const leg1 = limb(0.19, 1.1, 0.12, 0.5, 0.55, 0.23, 0.14);
-                const leg2 = limb(-0.19, 1.1, -0.12, 0.5, 0.55, 0.23, 0.14);
+                const mixer = new THREE.AnimationMixer(model);
+                const actions = {};
+                for (const clip of fighterGLTF.animations) {
+                    actions[clip.name] = mixer.clipAction(clip);
+                }
 
                 return {
-                    root, torso, arm1, arm2, leg1, leg2,
+                    root, mixer, actions, currentAction: null,
                     x: 0, y: 0, vy: 0, facing: 1,
                     hp: 100, maxHP: 100, stamina: 100, power: 0,
                     attack: null, cooldown: 0, stun: 0,
@@ -529,7 +631,6 @@
             let wins = [0, 0];
             let transition = 0;
             let aiLevel = 0;
-            let elapsed = 0;
             let shake = 0;
             let lastTime = performance.now();
             const keys = new Set();
@@ -545,27 +646,224 @@
             let clientResultShown = false;
             let onlineLobbyPending = false;
 
-            let audio;
-            function unlockAudio() {
+            let audio, masterGain, sfxGain, musicGain, musicFilter;
+            let noiseBuffer = null, musicTimer = null, musicStep = 0;
+            const MUSIC_VOL = 0.2;
+
+            async function goLandscape() {
                 try {
-                    audio ??= new (window.AudioContext || window.webkitAudioContext)();
+                    if (document.documentElement.requestFullscreen) {
+                        await document.documentElement.requestFullscreen();
+                    }
+                    if (screen.orientation && screen.orientation.lock) {
+                        await screen.orientation.lock("landscape");
+                    }
+                } catch { }
+            }
+
+            let landscapeAttempted = false;
+            function unlockAudio() {
+                if (!landscapeAttempted) { landscapeAttempted = true; goLandscape(); }
+                try {
+                    if (!audio) {
+                        audio = new (window.AudioContext || window.webkitAudioContext)();
+                        masterGain = audio.createGain();
+                        masterGain.gain.value = save.muted ? 0 : 1;
+                        masterGain.connect(audio.destination);
+                        sfxGain = audio.createGain();
+                        sfxGain.gain.value = 0.85;
+                        sfxGain.connect(masterGain);
+                        musicGain = audio.createGain();
+                        musicGain.gain.value = 0;
+                        musicGain.connect(masterGain);
+                        musicFilter = audio.createBiquadFilter();
+                        musicFilter.type = "lowpass";
+                        musicFilter.frequency.value = 520;
+                        musicFilter.Q.value = 0.8;
+                        musicFilter.connect(musicGain);
+                        startMusic();
+                    }
                     audio.resume().catch(() => { });
                 } catch { }
             }
 
-            function sound(blocked = false) {
-                if (!audio) return;
+            function noiseSource() {
+                if (!noiseBuffer) {
+                    noiseBuffer = audio.createBuffer(1, audio.sampleRate * 2, audio.sampleRate);
+                    const data = noiseBuffer.getChannelData(0);
+                    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+                }
+                const src = audio.createBufferSource();
+                src.buffer = noiseBuffer;
+                src.loop = true;
+                return src;
+            }
+
+            function tone(type, from, to, peak, duration, delay = 0, dest, attack = 0.006) {
                 const osc = audio.createOscillator();
                 const gain = audio.createGain();
-                const now = audio.currentTime;
+                const t = audio.currentTime + delay;
+                osc.type = type;
+                osc.frequency.setValueAtTime(from, t);
+                if (to !== from) osc.frequency.exponentialRampToValueAtTime(to, t + duration);
+                gain.gain.setValueAtTime(0.0001, t);
+                gain.gain.exponentialRampToValueAtTime(peak, t + attack);
+                gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+                osc.connect(gain).connect(dest || sfxGain);
+                osc.start(t);
+                osc.stop(t + duration + 0.03);
+            }
+
+            function burst(type, from, to, peak, duration, q = 1, delay = 0, dest) {
+                const src = noiseSource();
+                const filter = audio.createBiquadFilter();
+                const gain = audio.createGain();
+                const t = audio.currentTime + delay;
+                filter.type = type;
+                filter.Q.value = q;
+                filter.frequency.setValueAtTime(from, t);
+                if (to !== from) filter.frequency.exponentialRampToValueAtTime(to, t + duration);
+                gain.gain.setValueAtTime(0.0001, t);
+                gain.gain.exponentialRampToValueAtTime(peak, t + 0.008);
+                gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+                src.connect(filter).connect(gain).connect(dest || sfxGain);
+                src.start(t);
+                src.stop(t + duration + 0.03);
+            }
+
+            function sound(blocked = false) {
+                if (!audio) return;
+                if (blocked) {
+                    burst("bandpass", 3400, 1900, 0.16, 0.13, 7);
+                    tone("square", 618, 540, 0.055, 0.16);
+                    tone("square", 947, 880, 0.035, 0.11, 0.005);
+                    tone("sine", 130, 70, 0.1, 0.1);
+                } else {
+                    tone("sine", 165, 44, 0.45, 0.24);
+                    tone("triangle", 92, 33, 0.3, 0.19);
+                    burst("lowpass", 2600, 320, 0.4, 0.085, 1);
+                }
+            }
+
+            function soundWhoosh() {
+                if (!audio) return;
+                burst("bandpass", 620, 2600, 0.09, 0.2, 1.4);
+            }
+
+            function soundJump() {
+                if (!audio) return;
+                tone("sine", 210, 540, 0.13, 0.14);
+                burst("highpass", 900, 2400, 0.04, 0.1, 1);
+            }
+
+            function soundLand() {
+                if (!audio) return;
+                tone("sine", 128, 52, 0.2, 0.13);
+                burst("lowpass", 1400, 260, 0.11, 0.08, 1);
+            }
+
+            function soundKO() {
+                if (!audio) return;
+                tone("sine", 118, 26, 0.55, 0.95);
+                tone("sawtooth", 74, 22, 0.16, 0.7, 0.01);
+                burst("lowpass", 1800, 120, 0.3, 0.5, 1);
+                tone("sine", 330, 160, 0.09, 0.8, 0.12);
+            }
+
+            function soundCombo(count) {
+                if (!audio) return;
+                const freq = 440 * Math.pow(2, Math.min(count, 10) / 12);
+                tone("square", freq, freq * 1.5, 0.055, 0.08);
+                tone("sine", freq * 2, freq * 3, 0.045, 0.1, 0.01);
+            }
+
+            function soundClick() {
+                if (!audio) return;
+                tone("square", 880, 620, 0.035, 0.035);
+                burst("highpass", 2600, 4200, 0.03, 0.03, 1);
+            }
+
+            function padNote(freq) {
+                const osc = audio.createOscillator();
+                const osc2 = audio.createOscillator();
+                const gain = audio.createGain();
+                const t = audio.currentTime;
+                const len = 3.2 + Math.random() * 2;
                 osc.type = "triangle";
-                osc.frequency.setValueAtTime(blocked ? 260 : 110, now);
-                osc.frequency.exponentialRampToValueAtTime(35, now + 0.12);
-                gain.gain.setValueAtTime(0.13, now);
-                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
-                osc.connect(gain).connect(audio.destination);
-                osc.start(now);
-                osc.stop(now + 0.15);
+                osc2.type = "sine";
+                osc.frequency.value = freq;
+                osc2.frequency.value = freq * 1.006;
+                gain.gain.setValueAtTime(0.0001, t);
+                gain.gain.linearRampToValueAtTime(0.16, t + len * 0.45);
+                gain.gain.linearRampToValueAtTime(0.0001, t + len);
+                osc.connect(gain);
+                osc2.connect(gain);
+                gain.connect(musicFilter);
+                osc.start(t); osc2.start(t);
+                osc.stop(t + len + 0.05); osc2.stop(t + len + 0.05);
+            }
+
+            const padScale = [110, 130.81, 146.83, 164.81, 196, 220, 261.63];
+
+            function musicTick() {
+                if (!audio || audio.state !== "running") return;
+                musicStep++;
+                if (musicStep % 4 === 1) {
+                    tone("sine", 72, 38, 0.42, 0.55, 0, musicFilter, 0.02);
+                    burst("lowpass", 700, 180, 0.05, 0.3, 1, 0, musicGain);
+                }
+                if (Math.random() < 0.6) {
+                    padNote(padScale[Math.floor(Math.random() * padScale.length)]);
+                }
+            }
+
+            function startMusic() {
+                if (!audio || musicTimer) return;
+                for (const [freq, type, level] of [
+                    [55, "sine", 0.4], [82.41, "triangle", 0.16], [110, "sine", 0.1]
+                ]) {
+                    const osc = audio.createOscillator();
+                    const gain = audio.createGain();
+                    const lfo = audio.createOscillator();
+                    const lfoGain = audio.createGain();
+                    osc.type = type;
+                    osc.frequency.value = freq;
+                    gain.gain.value = level;
+                    lfo.type = "sine";
+                    lfo.frequency.value = 0.03 + Math.random() * 0.05;
+                    lfoGain.gain.value = level * 0.4;
+                    lfo.connect(lfoGain).connect(gain.gain);
+                    osc.connect(gain).connect(musicFilter);
+                    osc.start(); lfo.start();
+                }
+                const sweep = audio.createOscillator();
+                const sweepGain = audio.createGain();
+                sweep.type = "sine";
+                sweep.frequency.value = 0.017;
+                sweepGain.gain.value = 260;
+                sweep.connect(sweepGain).connect(musicFilter.frequency);
+                sweep.start();
+                musicGain.gain.setValueAtTime(0.0001, audio.currentTime);
+                musicGain.gain.linearRampToValueAtTime(MUSIC_VOL, audio.currentTime + 4);
+                musicTimer = setInterval(musicTick, 2200);
+            }
+
+            function setMusicLevel(level) {
+                if (!audio || !musicGain) return;
+                musicGain.gain.cancelScheduledValues(audio.currentTime);
+                musicGain.gain.setTargetAtTime(level, audio.currentTime, 0.4);
+            }
+
+            function setMuted(muted) {
+                save.muted = muted ? 1 : 0;
+                persist();
+                $("sound").textContent = save.muted ? "Sound: Off" : "Sound: On";
+                $("sound").setAttribute("aria-pressed", String(!save.muted));
+                if (masterGain) {
+                    masterGain.gain.setTargetAtTime(
+                        save.muted ? 0 : 1, audio.currentTime, 0.03
+                    );
+                }
             }
 
             function showPanel(title, description, actions) {
@@ -579,7 +877,7 @@
                     const button = document.createElement("button");
                     button.textContent = label;
                     button.disabled = disabled;
-                    button.onclick = () => { unlockAudio(); action(); };
+                    button.onclick = () => { unlockAudio(); soundClick(); action(); };
                     $("actions").append(button);
                 }
             }
@@ -597,6 +895,7 @@
                 if (peer) teardownNetwork();
                 state = "menu";
                 keys.clear();
+                setMusicLevel(MUSIC_VOL);
                 $("message").textContent = "";
                 $("pause").textContent = "Pause";
                 $("playerName").textContent = "YOU";
@@ -838,7 +1137,7 @@
                     const button = document.createElement("button");
                     button.textContent = label;
                     button.disabled = disabled;
-                    button.onclick = () => { unlockAudio(); action(); };
+                    button.onclick = () => { unlockAudio(); soundClick(); action(); };
                     $("actions").append(button);
                 }
             }
@@ -896,7 +1195,7 @@
                 $("actions").replaceChildren();
                 const cancel = document.createElement("button");
                 cancel.textContent = "Cancel";
-                cancel.onclick = () => { unlockAudio(); teardownNetwork(); menu(); };
+                cancel.onclick = () => { unlockAudio(); soundClick(); teardownNetwork(); menu(); };
                 $("actions").append(cancel);
             }
 
@@ -982,7 +1281,7 @@
 
                 const hostBtn = document.createElement("button");
                 hostBtn.textContent = "Host a match";
-                hostBtn.onclick = () => { unlockAudio(); hostGame(); };
+                hostBtn.onclick = () => { unlockAudio(); soundClick(); hostGame(); };
 
                 const joinRow = document.createElement("div");
                 joinRow.style.cssText = "display:flex;gap:8px;";
@@ -994,7 +1293,7 @@
                     "color:#eef3ff;padding:12px;font:inherit;";
                 const joinBtn = document.createElement("button");
                 joinBtn.textContent = "Join";
-                joinBtn.onclick = () => { unlockAudio(); joinGame(input.value); };
+                joinBtn.onclick = () => { unlockAudio(); soundClick(); joinGame(input.value); };
                 input.addEventListener("keydown", e => {
                     if (e.key === "Enter") { unlockAudio(); joinGame(input.value); }
                 });
@@ -1002,7 +1301,7 @@
 
                 const backBtn = document.createElement("button");
                 backBtn.textContent = "Back";
-                backBtn.onclick = () => { unlockAudio(); menu(); };
+                backBtn.onclick = () => { unlockAudio(); soundClick(); menu(); };
 
                 $("actions").append(hostBtn, joinRow, backBtn);
             }
@@ -1038,6 +1337,7 @@
                 f.stamina -= spec.cost;
                 f.attack = { kind, time: 0, hit: false };
                 f.cooldown = spec.duration + 0.12;
+                soundWhoosh();
             }
 
             function jump(f) {
@@ -1045,6 +1345,7 @@
                     !f.blocking && f.stamina >= 8) {
                     f.vy = 6;
                     f.stamina -= 8;
+                    soundJump();
                 }
             }
 
@@ -1075,6 +1376,7 @@
                 combo.style.animation = "none";
                 void combo.offsetWidth;
                 combo.style.animation = "";
+                soundCombo(count);
             }
 
             function hit(attacker, defender, spec) {
@@ -1111,6 +1413,7 @@
                 shake = blocked ? 0.045 : 0.13;
                 sparks((attacker.x + defender.x) / 2, attacker.y + 1.5, blocked);
                 sound(blocked);
+                if (defender.hp <= 0) soundKO();
             }
 
             function updateFighter(f, opponent, dt) {
@@ -1128,9 +1431,13 @@
                 }
 
                 if (f.y > 0 || f.vy > 0) {
+                    const airborne = f.y > 0;
                     f.vy -= 17 * dt;
                     f.y = Math.max(0, f.y + f.vy * dt);
-                    if (f.y === 0) f.vy = 0;
+                    if (f.y === 0) {
+                        if (airborne) soundLand();
+                        f.vy = 0;
+                    }
                 }
 
                 if (f.attack) {
@@ -1177,70 +1484,37 @@
                 enemy.x = clamp(enemy.x + correction * sign, -8, 8);
             }
 
-            function animateFighter(f) {
+            function playClip(f, name, fade) {
+                const next = f.actions[name];
+                if (!next || f.currentAction === next) return;
+                next.reset().setEffectiveWeight(1).play();
+                if (f.currentAction) next.crossFadeFrom(f.currentAction, fade, false);
+                f.currentAction = next;
+            }
+
+            // Pure function of state already carried on the fighter (all of it already
+            // present in snapshotFighter(), so the networked client derives the same clip
+            // as the host — no extra sync needed). See CLIP_MAP for the current placeholder
+            // clip assignments pending real Mixamo fight clips (PLAN.md Milestone 4).
+            function selectClip(f) {
+                if (f.hp <= 0) return "ko";
+                if (f.stun > 0) return "hit";
+                if (f.attack) return "attack";
+                if (f.y !== 0) return "jump";
+                if (f.blocking) return "block";
+                if (f.move) return "walk";
+                return "idle";
+            }
+
+            function animateFighter(f, dt) {
                 f.root.position.set(f.x, f.y, 0);
                 f.root.rotation.y = f.facing === 1 ? 0 : Math.PI;
 
-                const grounded = f.y === 0;
-                const walking = f.move && !f.attack && f.stun <= 0 && grounded;
-                const walk = Math.sin(elapsed * 13) * (walking ? 0.48 : 0.035);
-                const walkKnee = Math.max(0, Math.sin(elapsed * 13 + 1)) * (walking ? 0.55 : 0);
+                const key = selectClip(f);
+                const fastCut = key === "attack" || key === "hit" || key === "ko";
+                playClip(f, CLIP_MAP[key], fastCut ? 0.05 : 0.12);
+                f.mixer.update(dt);
 
-                f.arm1.upper.rotation.z = -0.38 - walk;
-                f.arm1.lower.rotation.z = 0.15;
-                f.arm2.upper.rotation.z = 0.3 + walk;
-                f.arm2.lower.rotation.z = 0.15;
-                f.leg1.upper.rotation.z = walk;
-                f.leg1.lower.rotation.z = -walkKnee;
-                f.leg2.upper.rotation.z = -walk;
-                f.leg2.lower.rotation.z = walkKnee;
-                f.torso.rotation.z = f.stun > 0 ? -0.16 : 0;
-                f.torso.rotation.x = 0;
-
-                if (f.blocking) {
-                    f.arm1.upper.rotation.z = 2.4;
-                    f.arm1.lower.rotation.z = 0.9;
-                    f.arm2.upper.rotation.z = 2.15;
-                    f.arm2.lower.rotation.z = 0.9;
-                    f.torso.rotation.x = 0.08;
-                }
-
-                if (!grounded) {
-                    const rising = f.vy > 0.5;
-                    const falling = f.vy < -0.5;
-                    f.leg1.upper.rotation.z = rising ? 0.95 : falling ? -0.35 : 0.3;
-                    f.leg1.lower.rotation.z = rising ? -1.3 : falling ? -0.15 : -0.4;
-                    f.leg2.upper.rotation.z = rising ? -0.75 : falling ? 0.25 : -0.25;
-                    f.leg2.lower.rotation.z = rising ? -1.1 : falling ? -0.15 : -0.35;
-                    f.arm1.upper.rotation.z = rising ? -1.1 : -0.6;
-                    f.arm2.upper.rotation.z = rising ? 1.0 : 0.55;
-                    f.torso.rotation.x = rising ? -0.1 : 0.12;
-                }
-
-                if (f.attack) {
-                    const spec = attacks[f.attack.kind];
-                    const t = f.attack.time;
-                    const extension = t < spec.impact
-                        ? t / spec.impact
-                        : Math.max(0, 1 - (t - spec.impact) / (spec.duration - spec.impact));
-                    const snap = extension * extension * (3 - 2 * extension);
-
-                    if (f.attack.kind === "punch") {
-                        f.arm1.upper.rotation.z = -0.5 + snap * 2.2;
-                        f.arm1.lower.rotation.z = (1 - snap) * 1.3;
-                        f.arm2.upper.rotation.z = 0.5 - snap * 0.4;
-                        f.torso.rotation.z = -snap * 0.18;
-                    } else {
-                        f.leg1.upper.rotation.z = -0.3 + snap * 2.0;
-                        f.leg1.lower.rotation.z = (1 - snap) * 1.6 - snap * 0.1;
-                        f.leg2.upper.rotation.z = -snap * 0.25;
-                        f.leg2.lower.rotation.z = snap * 0.35;
-                        f.arm1.upper.rotation.z = -snap * 0.8;
-                        f.arm2.upper.rotation.z = 0.6 + snap * 0.3;
-                        f.torso.rotation.z = -snap * 0.1;
-                        f.torso.rotation.x = -snap * 0.15;
-                    }
-                }
                 if (f.hp <= 0) {
                     f.root.rotation.z = -f.facing * 1.35;
                     f.root.position.y = 0.35;
@@ -1264,6 +1538,7 @@
                 if (state !== "fight") return;
                 state = "paused";
                 keys.clear();
+                setMusicLevel(MUSIC_VOL * 0.25);
                 showPanel("PAUSED", "The arena can wait.", [
                     { label: "Resume", action: resume },
                     { label: "Return to camp", action: menu }
@@ -1274,12 +1549,22 @@
                 state = "fight";
                 $("overlay").style.display = "none";
                 lastTime = performance.now();
+                setMusicLevel(MUSIC_VOL);
             }
 
             $("pause").onclick = () => {
+                unlockAudio();
+                soundClick();
                 if (netRole) leaveOnline();
                 else state === "paused" ? resume() : pause();
             };
+
+            $("sound").onclick = () => {
+                unlockAudio();
+                setMuted(!save.muted);
+                soundClick();
+            };
+            setMuted(save.muted);
 
             function sendClientInput() {
                 if (netRole === "client") sendMsg({ t: "input", keys: [...keys] });
@@ -1311,9 +1596,12 @@
             });
             document.addEventListener("visibilitychange", () => {
                 if (document.hidden) {
+                    setMusicLevel(0);
                     keys.clear();
                     if (netRole === "client") sendClientInput();
                     else if (!netRole) pause();
+                } else {
+                    setMusicLevel(state === "paused" ? MUSIC_VOL * 0.25 : MUSIC_VOL);
                 }
             });
 
@@ -1346,8 +1634,6 @@
                 requestAnimationFrame(frame);
                 const dt = Math.min((now - lastTime) / 1000, 0.033);
                 lastTime = now;
-
-                if (state !== "paused") elapsed += dt;
 
                 if (!netRole || netRole === "host") {
                     if (state === "intro" || state === "roundEnd") {
@@ -1421,8 +1707,8 @@
                     shake *= Math.exp(-dt * 18);
                 }
 
-                animateFighter(player);
-                animateFighter(enemy);
+                animateFighter(player, dt);
+                animateFighter(enemy, dt);
                 updateHUD();
 
                 const center = (player.x + enemy.x) / 2;
@@ -1441,6 +1727,7 @@
             resetFighter(enemy, 2.5);
             menu();
             requestAnimationFrame(frame);
+            document.getElementById("lockLandscape").addEventListener("click", goLandscape);
 
         } catch (error) {
             console.error(error);

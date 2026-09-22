@@ -1,4 +1,4 @@
-const CACHE = "nightfall-arena-v1";
+const CACHE = "nightfall-arena-v2";
 const ASSETS = [
     "./",
     "./index.html",
@@ -6,6 +6,10 @@ const ASSETS = [
     "./vendor/three.module.js",
     "./vendor/three.core.js",
     "./vendor/peerjs.min.js",
+    "./vendor/jsm/loaders/GLTFLoader.js",
+    "./vendor/jsm/utils/SkeletonUtils.js",
+    "./vendor/jsm/utils/BufferGeometryUtils.js",
+    "./models/Soldier.glb",
     "./icons/icon-192.png",
     "./icons/icon-512.png"
 ];
