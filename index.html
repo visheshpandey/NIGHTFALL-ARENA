@@ -807,6 +807,33 @@
                 $("actions").append(cancel);
             }
 
+            const FATAL_PEER_ERRORS = new Set([
+                "peer-unavailable", "unavailable-id", "invalid-id", "invalid-key",
+                "browser-incompatible", "webrtc", "ssl-unavailable"
+            ]);
+
+            function wirePeerResilience() {
+                let retries = 0;
+                peer.on("error", err => {
+                    if (FATAL_PEER_ERRORS.has(err?.type)) { onlineError(err); return; }
+                    if (conn && conn.open) {
+                        try { peer.reconnect(); } catch { }
+                        return;
+                    }
+                    if (retries < 3) {
+                        retries++;
+                        try { peer.reconnect(); } catch { }
+                    } else {
+                        onlineError(err);
+                    }
+                });
+                peer.on("disconnected", () => {
+                    if (conn && conn.open) {
+                        try { peer.reconnect(); } catch { }
+                    }
+                });
+            }
+
             function hostGame() {
                 try {
                     netRole = "host";
@@ -827,7 +854,7 @@
                                 code, "Friend connected! Starting…");
                         });
                     });
-                    peer.on("error", onlineError);
+                    wirePeerResilience();
                 } catch (err) { onlineError(err); }
             }
 
@@ -847,7 +874,7 @@
                             onlineLobbyPending = true;
                         });
                     });
-                    peer.on("error", onlineError);
+                    wirePeerResilience();
                 } catch (err) { onlineError(err); }
             }
 
@@ -895,6 +922,7 @@
                 $("playerName").textContent = "YOU";
                 $("enemyName").textContent = "FRIEND";
                 $("pause").textContent = "Leave";
+                $("overlay").style.display = "none";
                 clientResultShown = false;
                 wins = [0, 0];
                 round = 1;
