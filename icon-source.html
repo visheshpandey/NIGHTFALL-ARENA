@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+        }
+
+        #icon {
+            width: 512px;
+            height: 512px;
+            position: relative;
+            overflow: hidden;
+            background: #070b16;
+        }
+
+        #glow {
+            position: absolute;
+            left: 50%;
+            top: 54%;
+            width: 430px;
+            height: 430px;
+            transform: translate(-50%, -50%);
+            background: radial-gradient(circle,
+                    rgba(255, 190, 120, .72) 0%,
+                    rgba(168, 128, 205, .34) 38%,
+                    rgba(9, 14, 29, 0) 70%);
+        }
+
+        svg {
+            position: absolute;
+            inset: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="icon">
+        <div id="glow"></div>
+        <svg viewBox="0 0 512 512">
+            <!-- fighter silhouette: bold punch stance -->
+            <g fill="#05070c">
+                <!-- head -->
+                <circle cx="196" cy="136" r="38" />
+                <!-- torso -->
+                <rect x="160" y="182" width="78" height="118" rx="14" />
+                <!-- rear arm, pulled back to guard -->
+                <rect x="126" y="196" width="30" height="86" rx="15"
+                    transform="rotate(14 141 239)" />
+                <!-- extended punching arm -->
+                <rect x="232" y="198" width="126" height="32" rx="16" />
+                <!-- front leg -->
+                <rect x="164" y="292" width="34" height="104" rx="15"
+                    transform="rotate(9 181 344)" />
+                <rect x="150" y="386" width="60" height="26" rx="10" />
+                <!-- rear leg, braced back -->
+                <rect x="206" y="292" width="34" height="104" rx="15"
+                    transform="rotate(-24 223 344)" />
+                <rect x="252" y="378" width="60" height="26" rx="10"
+                    transform="rotate(-10 282 391)" />
+            </g>
+            <!-- accent trim -->
+            <g fill="#65e4cf">
+                <rect x="166" y="120" width="66" height="15" rx="5" />
+                <rect x="158" y="288" width="82" height="17" rx="6" />
+                <rect x="336" y="194" width="34" height="40" rx="11" />
+                <rect x="146" y="384" width="66" height="18" rx="7" />
+            </g>
+        </svg>
+    </div>
+</body>
+
+</html>

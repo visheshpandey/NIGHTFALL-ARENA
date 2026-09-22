@@ -5,6 +5,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <title>Nightfall Arena</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#070b16">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
     <style>
         * {
             box-sizing: border-box;
@@ -335,11 +341,11 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="vendor/peerjs.min.js"></script>
     <script type="module">
         try {
             const THREE = await import(
-                "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
+                "./vendor/three.module.js"
             );
 
             const $ = id => document.getElementById(id);
@@ -1443,6 +1449,13 @@
                 "The game could not start. Check your internet connection and use a " +
                 "WebGL-capable browser with hardware acceleration enabled. Details: " +
                 error.message;
+        }
+    </script>
+    <script>
+        if ("serviceWorker" in navigator) {
+            addEventListener("load", () => {
+                navigator.serviceWorker.register("sw.js").catch(() => { });
+            });
         }
     </script>
 </body>
