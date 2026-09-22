@@ -641,8 +641,36 @@
                     [{ label: "Back", action: onlineMenu }]);
             }
 
+            const ICE_CONFIG = {
+                iceServers: [
+                    { urls: "stun:stun.l.google.com:19302" },
+                    { urls: "stun:global.stun.twilio.com:3478" },
+                    {
+                        urls: "turn:openrelay.metered.ca:80",
+                        username: "openrelayproject", credential: "openrelayproject"
+                    },
+                    {
+                        urls: "turn:openrelay.metered.ca:443",
+                        username: "openrelayproject", credential: "openrelayproject"
+                    },
+                    {
+                        urls: "turn:openrelay.metered.ca:443?transport=tcp",
+                        username: "openrelayproject", credential: "openrelayproject"
+                    }
+                ]
+            };
+
             function wireConnection() {
+                const timeoutId = setTimeout(() => {
+                    if (!conn || !conn.open) {
+                        onlineError({
+                            message: "Connection timed out — this can happen on strict networks. " +
+                                "Try again, or connect both devices to the same Wi-Fi."
+                        });
+                    }
+                }, 15000);
                 conn.on("open", () => {
+                    clearTimeout(timeoutId);
                     sendMsg({ t: "hello", power: save.power, vitality: save.vitality });
                 });
                 conn.on("data", handleNetMessage);
@@ -787,13 +815,17 @@
                         () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
                     renderLobby("HOSTING MATCH", "Share this code with your friend:",
                         code, "Waiting for your friend to join…");
-                    peer = new Peer(ROOM_PREFIX + code);
+                    peer = new Peer(ROOM_PREFIX + code, { config: ICE_CONFIG });
                     peer.on("connection", c => {
                         if (conn) { c.close(); return; }
                         conn = c;
-                        wireConnection();
                         renderLobby("HOSTING MATCH", "Share this code with your friend:",
-                            code, "Friend connected! Starting…");
+                            code, "Friend found — connecting…");
+                        wireConnection();
+                        conn.on("open", () => {
+                            renderLobby("HOSTING MATCH", "Share this code with your friend:",
+                                code, "Friend connected! Starting…");
+                        });
                     });
                     peer.on("error", onlineError);
                 } catch (err) { onlineError(err); }
@@ -805,9 +837,10 @@
                     if (!code) return;
                     netRole = "client";
                     renderLobby("JOINING MATCH", "", "", "Connecting…");
-                    peer = new Peer();
+                    peer = new Peer({ config: ICE_CONFIG });
                     peer.on("open", () => {
                         conn = peer.connect(ROOM_PREFIX + code, { reliable: true });
+                        renderLobby("JOINING MATCH", "", "", "Found host — connecting…");
                         wireConnection();
                         conn.on("open", () => {
                             renderLobby("JOINING MATCH", "", "", "Connected! Waiting for match to start…");
