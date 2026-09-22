@@ -170,11 +170,12 @@ may not redistribute the raw assets. Re-check terms before charging money.
 **Character building** — needs M1–M5 first. Cheapest real version: pick body +
 color + starting stat build.
 
-**Story & fighting styles** — the roster (`ASH, VIPER, IRON MONK, WRAITH,
-THE REGENT`, L354) is currently just *names* with no per-opponent stats. AI
-difficulty is a single `aiLevel` number inlined at L1158–1165. Moving that to a
-per-opponent table (aggressive / defensive / ranged) makes fights feel authored
-instead of just scaled. High impact, low effort.
+**Fighting styles** ✅ DONE — each of the 5 opponents (`ROSTER` table) now has
+its own reaction time, spacing, block chance, kick/punch preference, and jump
+frequency, plus a menu tagline. HP/damage/reward still scale with `aiLevel`
+(the difficulty curve) — this was personality on top of it, not a difficulty
+change. Still open: **story** — no narrative/dialogue/cutscenes yet, just
+flavor taglines.
 
 **Security** — real gaps today:
 - Saves are plain `localStorage` → trivially edited
